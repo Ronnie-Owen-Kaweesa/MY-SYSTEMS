@@ -10,7 +10,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('users');
 
-  // PIN change form
+  // PIN form
   const [showPinForm, setShowPinForm] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [targetUserId, setTargetUserId] = useState('');
@@ -18,6 +18,9 @@ export default function Settings() {
   // Category form
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [newCategory, setNewCategory] = useState('');
+
+  // Reset confirmation
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -86,9 +89,34 @@ export default function Settings() {
     }
   }
 
+  async function handleResetAllData() {
+    try {
+      toast.loading('Resetting all data...');
+      // Delete child tables first (foreign keys reference tabs)
+      await supabase.from('receipts').delete().neq('id', '');
+      await supabase.from('payments').delete().neq('id', '');
+      await supabase.from('tab_items').delete().neq('id', '');
+      // Then delete tabs
+      await supabase.from('tabs').delete().neq('id', '');
+      // Delete stock counts (no foreign key issues)
+      await supabase.from('stock_counts').delete().neq('id', '');
+      // Reset product stock to 0
+      await supabase.from('products').update({ current_stock: 0 }).neq('id', '');
+
+      toast.dismiss();
+      toast.success('All sales data has been reset');
+      setShowResetConfirm(false);
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Reset failed: ' + error.message);
+      console.error(error);
+    }
+  }
+
   const tabs = [
     { key: 'users', label: '👥 Users & PINs' },
     { key: 'categories', label: '📂 Categories' },
+    { key: 'reset', label: '🔄 Reset Data' },
     { key: 'about', label: 'ℹ️ About' },
   ];
 
@@ -125,7 +153,6 @@ export default function Settings() {
               + Change PIN
             </button>
           </div>
-
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700">
@@ -142,44 +169,19 @@ export default function Settings() {
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{u.full_name}</td>
                     <td className="px-4 py-3 text-sm capitalize text-gray-900 dark:text-white">{u.role}</td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          u.is_active
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                        }`}
-                      >
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${u.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
                         {u.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => {
-                          setTargetUserId(u.id);
-                          setShowPinForm(true);
-                        }}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mr-3 text-sm font-medium"
-                      >
-                        Change PIN
-                      </button>
-                      <button
-                        onClick={() => handleToggleStatus(u.id, u.is_active)}
-                        className={`text-sm font-medium ${
-                          u.is_active
-                            ? 'text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300'
-                            : 'text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300'
-                        }`}
-                      >
-                        {u.is_active ? 'Deactivate' : 'Activate'}
-                      </button>
+                      <button onClick={() => { setTargetUserId(u.id); setShowPinForm(true); }} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 mr-3 text-sm">Change PIN</button>
+                      <button onClick={() => handleToggleStatus(u.id, u.is_active)} className={`text-sm ${u.is_active ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>{u.is_active ? 'Deactivate' : 'Activate'}</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
-          {/* Change PIN Modal */}
           {showPinForm && (
             <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border dark:border-gray-700">
@@ -188,27 +190,11 @@ export default function Settings() {
                   <form onSubmit={handleChangePin} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New PIN</label>
-                      <input
-                        type="password"
-                        maxLength={6}
-                        value={newPin}
-                        onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
-                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-center text-xl tracking-widest bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="••••••"
-                        autoFocus
-                      />
+                      <input type="password" maxLength={6} value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-center text-xl tracking-widest bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="••••••" autoFocus />
                     </div>
                     <div className="flex gap-3 pt-2">
-                      <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">
-                        Update PIN
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowPinForm(false)}
-                        className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500"
-                      >
-                        Cancel
-                      </button>
+                      <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Update PIN</button>
+                      <button type="button" onClick={() => setShowPinForm(false)} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
                     </div>
                   </form>
                 </div>
@@ -223,26 +209,13 @@ export default function Settings() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">Categories</h3>
-            <button
-              onClick={() => setShowCategoryForm(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700"
-            >
-              + Add Category
-            </button>
+            <button onClick={() => setShowCategoryForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700">+ Add Category</button>
           </div>
-
           <div className="flex flex-wrap gap-2 mb-4">
             {categories.map(cat => (
-              <span
-                key={cat.id}
-                className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-sm"
-              >
-                {cat.name}
-              </span>
+              <span key={cat.id} className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-sm">{cat.name}</span>
             ))}
           </div>
-
-          {/* Add Category Modal */}
           {showCategoryForm && (
             <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border dark:border-gray-700">
@@ -251,28 +224,57 @@ export default function Settings() {
                   <form onSubmit={handleAddCategory} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category Name</label>
-                      <input
-                        type="text"
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        placeholder="e.g., Cocktails"
-                        autoFocus
-                      />
+                      <input type="text" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="e.g., Cocktails" autoFocus />
                     </div>
                     <div className="flex gap-3 pt-2">
-                      <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">
-                        Add
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowCategoryForm(false)}
-                        className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500"
-                      >
-                        Cancel
-                      </button>
+                      <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Add</button>
+                      <button type="button" onClick={() => setShowCategoryForm(false)} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
                     </div>
                   </form>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reset Data tab */}
+      {activeTab === 'reset' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">🔄 Reset All Data</h3>
+          <p className="text-gray-600 dark:text-gray-300 mb-6">
+            This will permanently delete all sales, receipts, tabs, payments, and stock counts. Product stock will be reset to zero.
+            <br /><strong className="text-red-600">Products, users, and categories will NOT be deleted.</strong>
+          </p>
+          <button
+            onClick={() => setShowResetConfirm(true)}
+            className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 font-bold"
+          >
+            Reset All Data
+          </button>
+
+          {showResetConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border dark:border-gray-700">
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">⚠️ Confirm Reset</h3>
+                  <p className="text-gray-600 dark:text-gray-300 mb-6">
+                    Are you sure you want to delete ALL sales data and reset stock to zero? This action cannot be undone.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleResetAllData}
+                      className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold hover:bg-red-700"
+                    >
+                      Yes, Reset Everything
+                    </button>
+                    <button
+                      onClick={() => setShowResetConfirm(false)}
+                      className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -285,14 +287,12 @@ export default function Settings() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">About This System</h3>
           <div className="text-gray-600 dark:text-gray-300 space-y-2">
-            <p>
-              <strong>Bar Management System v1.0</strong>
-            </p>
+            <p><strong>Omuka Bar Management System v1.0</strong></p>
             <p>Built with React + Supabase</p>
             <p>Progressive Web App (offline-capable)</p>
             <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Default PINs have been removed from the UI for security. Please configure them in the Users tab.
+                Use the Reset Data tab to clear all sales and start fresh.
               </p>
             </div>
           </div>

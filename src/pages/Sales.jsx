@@ -37,9 +37,7 @@ export default function Sales() {
   const [historySuggestions, setHistorySuggestions] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
+  useEffect(() => { loadInitialData(); }, []);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -49,50 +47,26 @@ export default function Sales() {
 
   const checkActiveShift = async () => {
     if (user?.role === 'owner') {
-      // Owner uses any open cashier shift
-      const { data } = await supabase
-        .from('shifts')
-        .select('*')
-        .neq('shift_type', 'owner')
-        .eq('status', 'open')
-        .order('opened_at', { ascending: false })
-        .limit(1)
-        .single();
+      const { data } = await supabase.from('shifts').select('*').neq('shift_type', 'owner').eq('status', 'open').order('opened_at', { ascending: false }).limit(1).single();
       setActiveShift(data || null);
     } else {
-      // Cashier uses their own open shift
-      const { data } = await supabase
-        .from('shifts')
-        .select('*')
-        .eq('cashier_id', user.id)
-        .eq('status', 'open')
-        .single();
+      const { data } = await supabase.from('shifts').select('*').eq('cashier_id', user.id).eq('status', 'open').single();
       setActiveShift(data);
     }
   };
 
   const fetchProducts = async () => {
-    const { data } = await supabase
-      .from('products')
-      .select('*')
-      .eq('is_active', true)
-      .order('name');
+    const { data } = await supabase.from('products').select('*').eq('is_active', true).order('name');
     setProducts(data || []);
   };
 
   const fetchTabs = async () => {
-    const { data } = await supabase
-      .from('tabs')
-      .select('*')
-      .order('opened_at', { ascending: false });
+    const { data } = await supabase.from('tabs').select('*').order('opened_at', { ascending: false });
     setTabs(data || []);
   };
 
   const fetchTabItems = async (tabId) => {
-    const { data } = await supabase
-      .from('tab_items')
-      .select('*, products(name, product_code)')
-      .eq('tab_id', tabId);
+    const { data } = await supabase.from('tab_items').select('*, products(name, product_code)').eq('tab_id', tabId);
     setTabItems(data || []);
   };
 
@@ -101,12 +75,7 @@ export default function Sales() {
   const handleNameChange = async (value) => {
     setNewCustomerName(value);
     if (value.length > 0) {
-      const { data } = await supabase
-        .from('tabs')
-        .select('customer_name, phone_number')
-        .ilike('customer_name', `%${value}%`)
-        .order('opened_at', { ascending: false })
-        .limit(10);
+      const { data } = await supabase.from('tabs').select('customer_name, phone_number').ilike('customer_name', `%${value}%`).order('opened_at', { ascending: false }).limit(10);
       const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
       setSuggestions(unique);
     } else setSuggestions([]);
@@ -120,13 +89,10 @@ export default function Sales() {
 
   const handleOpenTab = async () => {
     if (!activeShift) {
-      toast.error(user?.role === 'owner' ? 'No active cashier shift. Please ask a cashier to open their shift.' : 'No active shift. Please start one first.');
+      toast.error(user?.role === 'owner' ? 'No active cashier shift.' : 'No active shift.');
       return;
     }
-    if (!newCustomerName.trim()) {
-      toast.error('Enter customer name');
-      return;
-    }
+    if (!newCustomerName.trim()) { toast.error('Enter customer name'); return; }
     const { data, error } = await supabase.from('tabs').insert([{
       customer_name: newCustomerName.trim(),
       phone_number: newCustomerPhone.trim() || null,
@@ -136,10 +102,7 @@ export default function Sales() {
     }]).select().single();
     if (error) { toast.error(error.message); return; }
     toast.success('Tab opened');
-    setNewCustomerName('');
-    setNewCustomerPhone('');
-    setSuggestions([]);
-    setShowNewTab(false);
+    setNewCustomerName(''); setNewCustomerPhone(''); setSuggestions([]); setShowNewTab(false);
     fetchTabs();
     setActiveTab(data);
     fetchTabItems(data.id);
@@ -148,9 +111,7 @@ export default function Sales() {
   const handleHistorySearchChange = async (value) => {
     setHistorySearch(value);
     if (value.trim().length > 0) {
-      const { data } = await supabase.from('tabs').select('customer_name')
-        .ilike('customer_name', `%${value.trim()}%`)
-        .order('opened_at', { ascending: false }).limit(8);
+      const { data } = await supabase.from('tabs').select('customer_name').ilike('customer_name', `%${value.trim()}%`).order('opened_at', { ascending: false }).limit(8);
       const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
       setHistorySuggestions(unique);
     } else setHistorySuggestions([]);
@@ -159,8 +120,7 @@ export default function Sales() {
   const searchCustomerHistory = async (nameOverride) => {
     const searchName = nameOverride || historySearch;
     if (!searchName.trim()) { toast.error('Enter a customer name'); return; }
-    const { data, error } = await supabase.from('tabs').select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`)
-      .ilike('customer_name', `%${searchName.trim()}%`).order('opened_at', { ascending: false });
+    const { data, error } = await supabase.from('tabs').select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`).ilike('customer_name', `%${searchName.trim()}%`).order('opened_at', { ascending: false });
     if (error) { toast.error('Search failed'); return; }
     setCustomerHistory(data || []);
     setHistorySuggestions([]);
@@ -169,10 +129,7 @@ export default function Sales() {
   const handleAddItem = async () => {
     if (!activeTab || !selectedProduct) return;
     const qty = parseInt(quantity) || 1;
-    if (selectedProduct.current_stock < qty) {
-      toast.error(`Not enough stock. Only ${selectedProduct.current_stock} left.`);
-      return;
-    }
+    if (selectedProduct.current_stock < qty) { toast.error(`Not enough stock. Only ${selectedProduct.current_stock} left.`); return; }
     const item = { tab_id: activeTab.id, product_id: selectedProduct.id, quantity: qty, unit_price: selectedProduct.selling_price, total: selectedProduct.selling_price * qty };
     const { error: insErr } = await supabase.from('tab_items').insert([item]);
     if (insErr) { toast.error(insErr.message); return; }
@@ -183,8 +140,7 @@ export default function Sales() {
     if (newStock === 0) setSelectedProduct(null);
     else setSelectedProduct(prev => prev ? { ...prev, current_stock: newStock } : null);
     fetchTabItems(activeTab.id);
-    setQuantity(1);
-    setSearchTerm('');
+    setQuantity(1); setSearchTerm('');
   };
 
   const handleRemoveItem = async (itemId, productId, itemQty) => {
@@ -206,112 +162,46 @@ export default function Sales() {
     const paid = parseFloat(paymentAmount);
     if (paid < total) { toast.error('Amount less than total'); return; }
 
-    await supabase.from('payments').insert([{
-      tab_id: activeTab.id,
-      amount: paid,
-      payment_method: paymentMethod,
-      confirmed_by: user.id,
-      reference_number: null
-    }]);
+    await supabase.from('payments').insert([{ tab_id: activeTab.id, amount: paid, payment_method: paymentMethod, confirmed_by: user.id, reference_number: null }]);
+    await supabase.from('tabs').update({ status: 'closed', total, closed_at: new Date().toISOString() }).eq('id', activeTab.id);
 
-    await supabase.from('tabs').update({
-      status: 'closed',
-      total: total,
-      closed_at: new Date().toISOString()
-    }).eq('id', activeTab.id);
-
-    // Get actual cashier name from the active shift (never "Owner")
     let cashierName = user.name;
     if (activeShift && activeShift.cashier_id) {
-      const { data: cashierUser } = await supabase
-        .from('users')
-        .select('full_name')
-        .eq('id', activeShift.cashier_id)
-        .single();
+      const { data: cashierUser } = await supabase.from('users').select('full_name').eq('id', activeShift.cashier_id).single();
       if (cashierUser) cashierName = cashierUser.full_name;
     }
 
     const receiptNumber = 'RCP-' + Date.now();
-    const { data: receipt, error: receiptError } = await supabase
-      .from('receipts')
-      .insert([{
-        tab_id: activeTab.id,
-        receipt_number: receiptNumber,
-        printed: false,
-        sms_sent: false,
-        whatsapp_sent: false,
-        customer_name: activeTab.customer_name,
-        cashier_name: cashierName,
-        total_amount: total,
-      }])
-      .select()
-      .single();
+    const { data: receipt, error: receiptError } = await supabase.from('receipts').insert([{
+      tab_id: activeTab.id,
+      receipt_number: receiptNumber,
+      printed: false, sms_sent: false, whatsapp_sent: false,
+      customer_name: activeTab.customer_name,
+      cashier_name: cashierName,
+      total_amount: total,
+    }]).select().single();
 
-    if (receiptError) {
-      toast.error('Receipt generation failed');
-      return;
-    }
+    if (receiptError) { toast.error('Receipt generation failed'); return; }
 
     toast.success(`Payment received. Receipt ${receiptNumber}`);
     setShowPayment(false);
-    setReceiptPreview({
-      ...receipt,
-      tab: activeTab,
-      items: tabItems,
-      total,
-      paid,
-      change: paid - total,
-      method: paymentMethod
-    });
-    setActiveTab(null);
-    setTabItems([]);
-    fetchTabs();
-    setPaymentAmount('');
-    setPaymentMethod('cash');
+    setReceiptPreview({ ...receipt, tab: activeTab, items: tabItems, total, paid, change: paid - total, method: paymentMethod });
+    setActiveTab(null); setTabItems([]); fetchTabs();
+    setPaymentAmount(''); setPaymentMethod('cash');
   };
 
   const handlePrintReceipt = () => {
     if (!receiptPreview) return;
     const win = window.open('', '_blank');
     win.document.write(generateReceiptHTML(receiptPreview));
-    win.document.close();
-    win.print();
+    win.document.close(); win.print();
     supabase.from('receipts').update({ printed: true }).eq('id', receiptPreview.id);
   };
 
   const generateReceiptHTML = (receipt) => {
     const date = new Date().toLocaleString('en-UG');
-    const itemsHTML = receipt.items.map(item =>
-      `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`
-    ).join('');
-    return `<!DOCTYPE html>
-<html>
-<head><title>Omuka Bar Receipt ${receipt.receipt_number}</title>
-<style>
-  body { font-family: monospace; width: 280px; margin: 0 auto; padding: 10px; }
-  h2 { text-align: center; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 4px; border-bottom: 1px dashed #ccc; }
-  .total { font-weight: bold; }
-  .footer { text-align: center; margin-top: 20px; }
-</style>
-</head>
-<body>
-  <h2>OMUKA BAR RECEIPT</h2>
-  <p>Receipt: ${receipt.receipt_number}</p>
-  <p>Date: ${date}</p>
-  <p>Customer: ${receipt.tab?.customer_name || 'N/A'}</p>
-  <p>Cashier: ${receipt.cashier_name || user.name}</p>
-  <table>
-    <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
-    <tbody>${itemsHTML}</tbody>
-  </table>
-  <p class="total">Total: ${formatCurrency(receipt.total)}</p>
-  <p>Paid: ${formatCurrency(receipt.paid)} (${receipt.method})</p>
-  <p>Change: ${formatCurrency(receipt.change)}</p>
-  <div class="footer"><p>Thank you for choosing Omuka Bar!</p></div>
-</body>
-</html>`;
+    const itemsHTML = receipt.items.map(item => `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`).join('');
+    return `<!DOCTYPE html><html><head><title>Omuka Bar Receipt ${receipt.receipt_number}</title><style>body{font-family:monospace;width:280px;margin:0 auto;padding:10px}h2{text-align:center}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:4px;border-bottom:1px dashed #ccc}.total{font-weight:bold}.footer{text-align:center;margin-top:20px}</style></head><body><h2>OMUKA BAR RECEIPT</h2><p>Receipt: ${receipt.receipt_number}</p><p>Date: ${date}</p><p>Customer: ${receipt.tab?.customer_name || 'N/A'}</p><p>Cashier: ${receipt.cashier_name || user.name}</p><table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${itemsHTML}</tbody></table><p class="total">Total: ${formatCurrency(receipt.total)}</p><p>Paid: ${formatCurrency(receipt.paid)} (${receipt.method})</p><p>Change: ${formatCurrency(receipt.change)}</p><div class="footer"><p>Thank you for choosing Omuka Bar!</p></div></body></html>`;
   };
 
   const sendDigitalReceipt = async (type) => {
@@ -325,30 +215,22 @@ export default function Sales() {
     return new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX', minimumFractionDigits: 0 }).format(amount || 0);
   }
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.product_code.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.product_code.toLowerCase().includes(searchTerm.toLowerCase()));
 
   if (loading) {
     return <div className="flex justify-center h-64 items-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div></div>;
   }
 
-  // Owner without active cashier shift
   if (!activeShift && user?.role === 'owner') {
     return (
       <div className="text-center py-20">
         <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-4">🔒 No Active Cashier Shift</p>
-        <p className="text-gray-500 dark:text-gray-400 mb-6">
-          A cashier must open their shift before sales can be made. Please ask Cashier 1 or Cashier 2 to start their shift.
-        </p>
-        <button onClick={() => { window.location.href = '/shifts'; }} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
-          View Shifts
-        </button>
+        <p className="text-gray-500 dark:text-gray-400 mb-6">A cashier must open their shift before sales can be made.</p>
+        <button onClick={() => { window.location.href = '/shifts'; }} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">View Shifts</button>
       </div>
     );
   }
 
-  // Cashier without active shift
   if (!activeShift && user?.role !== 'owner') {
     return (
       <div className="text-center py-12">
@@ -363,14 +245,11 @@ export default function Sales() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">💰 Sales</h2>
         <div className="flex gap-2">
-          <button onClick={() => { setShowHistory(!showHistory); if (showHistory) setCustomerHistory([]); }} className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 font-medium">
-            {showHistory ? 'Active Tabs' : 'Customer History'}
-          </button>
+          <button onClick={() => { setShowHistory(!showHistory); if (showHistory) setCustomerHistory([]); }} className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 font-medium">{showHistory ? 'Active Tabs' : 'Customer History'}</button>
           <button onClick={() => setShowNewTab(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">+ New Tab</button>
         </div>
       </div>
 
-      {/* Customer History Search */}
       {showHistory ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6 border dark:border-gray-700">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">🔍 Customer History</h3>
@@ -387,6 +266,7 @@ export default function Sales() {
             </div>
             <button onClick={() => searchCustomerHistory(historySearch)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Search</button>
           </div>
+
           {customerHistory.length > 0 && (
             <div className="space-y-6">
               {customerHistory.map(tab => (
@@ -395,7 +275,7 @@ export default function Sales() {
                     <div>
                       <p className="font-bold text-lg text-gray-900 dark:text-white">{tab.customer_name}</p>
                       {tab.phone_number && <p className="text-sm text-gray-500 dark:text-gray-400">📞 {tab.phone_number}</p>}
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{new Date(tab.opened_at).toLocaleString()} – <span className={`ml-1 font-medium ${tab.status==='closed'?'text-green-600 dark:text-green-400':'text-yellow-600 dark:text-yellow-400'}`}>{tab.status.toUpperCase()}</span></p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">{new Date(tab.opened_at).toLocaleString()} – <span className={`ml-1 font-medium ${tab.status==='closed'?'text-green-600 dark:text-green-400':'text-yellow-600 dark:text-yellow-400'}`}>{tab.status.toUpperCase()}</span></p>
                       {tab.cashier && <p className="text-sm text-gray-600 dark:text-gray-300">Cashier: {tab.cashier.full_name}</p>}
                     </div>
                     <div className="text-right mt-2 md:mt-0">
@@ -496,7 +376,7 @@ export default function Sales() {
                 <p className="text-sm text-gray-600 dark:text-gray-300">Receipt #: {receiptPreview.receipt_number}</p>
                 <p className="font-medium text-gray-900 dark:text-white">Customer: {receiptPreview.tab?.customer_name}</p>
                 {receiptPreview.tab?.phone_number && <p className="text-sm text-gray-500 dark:text-gray-400">📞 {receiptPreview.tab.phone_number}</p>}
-                <p className="text-sm text-gray-600 dark:text-gray-300">Date: {new Date().toLocaleString()}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{new Date().toLocaleString()}</p>
                 <div className="border-t dark:border-gray-500 my-2 pt-2">
                   {receiptPreview.items.map((item, i) => (
                     <div key={i} className="flex justify-between text-sm text-gray-900 dark:text-white"><span>{item.products?.name} x{item.quantity}</span><span>{formatCurrency(item.total)}</span></div>
@@ -523,7 +403,7 @@ export default function Sales() {
                       <div>
                         <p className="font-medium text-gray-900 dark:text-white">{tab.customer_name}</p>
                         {tab.phone_number && <p className="text-sm text-gray-500 dark:text-gray-400">📞 {tab.phone_number}</p>}
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Opened {new Date(tab.opened_at).toLocaleTimeString()}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">Opened {new Date(tab.opened_at).toLocaleTimeString()}</p>
                       </div>
                       <span className="text-blue-600 dark:text-blue-400">→</span>
                     </div>
@@ -534,7 +414,6 @@ export default function Sales() {
         </>
       )}
 
-      {/* Payment Modal */}
       {showPayment && activeTab && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border dark:border-gray-700">
@@ -566,7 +445,6 @@ export default function Sales() {
         </div>
       )}
 
-      {/* New Tab Modal */}
       {showNewTab && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border dark:border-gray-700">
