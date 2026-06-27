@@ -48,21 +48,30 @@ function App() {
               <Route path="inventory" element={<Inventory />} />
               <Route path="shifts" element={<Shifts />} />
               <Route path="sales" element={<Sales />} />
-              <Route path="reports" element={
-                <ProtectedRoute requiredRole="owner">
-                  <Reports />
-                </ProtectedRoute>
-              } />
-              <Route path="receipts" element={
-                <ProtectedRoute requiredRole="owner">
-                  <Receipts />
-                </ProtectedRoute>
-              } />
-              <Route path="settings" element={
-                <ProtectedRoute requiredRole="owner">
-                  <Settings />
-                </ProtectedRoute>
-              } />
+              <Route
+                path="reports"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Reports />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="receipts"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Receipts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="settings"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
           </Routes>
         </AuthProvider>

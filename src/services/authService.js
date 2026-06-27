@@ -1,73 +1,71 @@
 import supabase from './supabaseClient';
-import offlineDB from './offlineDB';
 
-// Login with PIN
-export async function loginWithPin(pinCode) {
-    try {
-        // Query users table for matching PIN
-        const { data, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('pin_code', pinCode)
-            .eq('is_active', true)
-            .single();
+// Login with either PIN or password
+export async function loginUser(credential) {
+  try {
+    const isNumeric = /^\d+$/.test(credential);
 
-        if (error || !data) {
-            throw new Error('Invalid PIN');
-        }
+    if (isNumeric) {
+      // Try PIN
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('pin_code', credential)
+        .eq('is_active', true)
+        .single();
 
-        // Store user in localStorage
-        const userData = {
-            id: data.id,
-            name: data.full_name,
-            role: data.role,
-            phone: data.phone_number,
-        };
+      if (error || !data) {
+        throw new Error('Invalid PIN or password');
+      }
+      return {
+        id: data.id,
+        name: data.full_name,
+        role: data.role,
+        phone: data.phone_number,
+      };
+    } else {
+      // Try password
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('password', credential)
+        .eq('is_active', true)
+        .single();
 
-        localStorage.setItem('bar_user', JSON.stringify(userData));
-        localStorage.setItem('bar_token', data.id); // Simple token
-
-        return { user: userData, error: null };
-    } catch (error) {
-        return { user: null, error: error.message };
+      if (error || !data) {
+        throw new Error('Invalid PIN or password');
+      }
+      return {
+        id: data.id,
+        name: data.full_name,
+        role: data.role,
+        phone: data.phone_number,
+      };
     }
+  } catch (error) {
+    throw new Error(error.message);
+  }
 }
 
-// Logout
+// Owner can set a password for any user
+export async function setUserPassword(userId, newPassword) {
+  const { error } = await supabase
+    .from('users')
+    .update({ password: newPassword })
+    .eq('id', userId);
+  if (error) throw error;
+}
+
 export function logout() {
-    localStorage.removeItem('bar_user');
-    localStorage.removeItem('bar_token');
+  localStorage.removeItem('bar_user');
 }
 
-// Get current user
 export function getCurrentUser() {
-    const userStr = localStorage.getItem('bar_user');
-    if (!userStr) return null;
-    
-    try {
-        return JSON.parse(userStr);
-    } catch {
-        return null;
-    }
-}
-
-// Check if authenticated
-export function isAuthenticated() {
-    return !!getCurrentUser();
-}
-
-// Get user role
-export function getUserRole() {
-    const user = getCurrentUser();
-    return user ? user.role : null;
-}
-
-// Check if user is owner
-export function isOwner() {
-    return getUserRole() === 'owner';
-}
-
-// Check if user is cashier
-export function isCashier() {
-    return getUserRole() === 'cashier';
+  const userStr = localStorage.getItem('bar_user');
+  if (!userStr) return null;
+  try {
+    return JSON.parse(userStr);
+  } catch {
+    return null;
+  }
 }

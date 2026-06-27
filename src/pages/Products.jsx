@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import supabase from '../services/supabaseClient';
+import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function Products() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  
-  // Form state
+
   const [form, setForm] = useState({
     product_code: '',
     name: '',
@@ -32,7 +33,6 @@ export default function Products() {
       .from('products')
       .select('*, categories(name)')
       .order('name');
-    
     if (error) {
       toast.error('Failed to load products');
       console.error(error);
@@ -43,10 +43,7 @@ export default function Products() {
   }
 
   async function fetchCategories() {
-    const { data } = await supabase
-      .from('categories')
-      .select('*')
-      .order('name');
+    const { data } = await supabase.from('categories').select('*').order('name');
     setCategories(data || []);
   }
 
@@ -82,7 +79,6 @@ export default function Products() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    
     const productData = {
       product_code: form.product_code,
       name: form.name,
@@ -96,24 +92,19 @@ export default function Products() {
 
     try {
       if (editingProduct) {
-        // Update existing product
         const { error } = await supabase
           .from('products')
           .update(productData)
           .eq('id', editingProduct.id);
-        
         if (error) throw error;
         toast.success('Product updated');
       } else {
-        // Create new product
         const { error } = await supabase
           .from('products')
           .insert([productData]);
-        
         if (error) throw error;
         toast.success('Product added');
       }
-      
       resetForm();
       fetchProducts();
     } catch (error) {
@@ -127,7 +118,6 @@ export default function Products() {
       .from('products')
       .update({ is_active: !product.is_active })
       .eq('id', product.id);
-    
     if (error) {
       toast.error('Failed to update');
     } else {
@@ -137,26 +127,21 @@ export default function Products() {
   }
 
   function formatPrice(price) {
-    return new Intl.NumberFormat('en-UG', {
-      style: 'currency',
-      currency: 'UGX',
-      minimumFractionDigits: 0,
-    }).format(price);
+    return new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX', minimumFractionDigits: 0 }).format(price);
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
       </div>
     );
   }
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">🍾 Products ({products.length})</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">🍾 Products ({products.length})</h2>
         <button
           onClick={() => { resetForm(); setShowForm(true); }}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
@@ -165,46 +150,42 @@ export default function Products() {
         </button>
       </div>
 
-      {/* Add/Edit Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto border dark:border-gray-700">
             <div className="p-6">
-              <h3 className="text-xl font-bold mb-4">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
                 {editingProduct ? 'Edit Product' : 'Add New Product'}
               </h3>
-              
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Code</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Code</label>
                   <input
                     type="text"
                     value={form.product_code}
                     onChange={(e) => setForm({...form, product_code: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., P021"
                     required
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Product Name</label>
                   <input
                     type="text"
                     value={form.name}
                     onChange={(e) => setForm({...form, name: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., Nile Special"
                     required
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
                   <select
                     value={form.category_id}
                     onChange={(e) => setForm({...form, category_id: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">-- Select Category --</option>
                     {categories.map((cat) => (
@@ -212,38 +193,36 @@ export default function Products() {
                     ))}
                   </select>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Selling Price (UGX)</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Selling Price (UGX)</label>
                     <input
                       type="number"
                       value={form.selling_price}
                       onChange={(e) => setForm({...form, selling_price: e.target.value})}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="5000"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Cost Price (UGX)</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cost Price (UGX)</label>
                     <input
                       type="number"
                       value={form.cost_price}
                       onChange={(e) => setForm({...form, cost_price: e.target.value})}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="3500"
                     />
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Unit Type</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unit Type</label>
                     <select
                       value={form.unit_type}
                       onChange={(e) => setForm({...form, unit_type: e.target.value})}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="bottle">Bottle</option>
                       <option value="crate">Crate</option>
@@ -251,40 +230,31 @@ export default function Products() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Units per Container</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Units per Container</label>
                     <input
                       type="number"
                       value={form.units_per_container}
                       onChange={(e) => setForm({...form, units_per_container: e.target.value})}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="24 (if applicable)"
                     />
                   </div>
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reorder Level</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reorder Level</label>
                   <input
                     type="number"
                     value={form.reorder_level}
                     onChange={(e) => setForm({...form, reorder_level: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="5"
                   />
                 </div>
-
                 <div className="flex gap-3 pt-4">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-medium"
-                  >
+                  <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-medium">
                     {editingProduct ? 'Update Product' : 'Add Product'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={resetForm}
-                    className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 font-medium"
-                  >
+                  <button type="button" onClick={resetForm} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 font-medium">
                     Cancel
                   </button>
                 </div>
@@ -294,64 +264,43 @@ export default function Products() {
         </div>
       )}
 
-      {/* Products Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border dark:border-gray-700">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Code</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Category</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Price</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Cost</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                     No products found. Click "+ Add Product" to create one.
                   </td>
                 </tr>
               ) : (
                 products.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm font-mono text-gray-600">{product.product_code}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{product.name}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {product.categories?.name || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900">
-                      {formatPrice(product.selling_price)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right text-gray-500">
-                      {product.cost_price ? formatPrice(product.cost_price) : '—'}
-                    </td>
+                  <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-4 py-3 text-sm font-mono text-gray-600 dark:text-gray-300">{product.product_code}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{product.name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{product.categories?.name || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-right font-medium text-gray-900 dark:text-white">{formatPrice(product.selling_price)}</td>
+                    <td className="px-4 py-3 text-sm text-right text-gray-500 dark:text-gray-400">{product.cost_price ? formatPrice(product.cost_price) : '—'}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        product.is_active 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${product.is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
                         {product.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => openEditForm(product)}
-                        className="text-blue-600 hover:text-blue-800 mr-3 text-sm font-medium"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => toggleActive(product)}
-                        className={`text-sm font-medium ${
-                          product.is_active ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'
-                        }`}
-                      >
+                      <button onClick={() => openEditForm(product)} className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mr-3 text-sm font-medium">Edit</button>
+                      <button onClick={() => toggleActive(product)} className={`text-sm font-medium ${product.is_active ? 'text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300' : 'text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300'}`}>
                         {product.is_active ? 'Deactivate' : 'Activate'}
                       </button>
                     </td>

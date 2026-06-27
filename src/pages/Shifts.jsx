@@ -58,9 +58,7 @@ export default function Shifts() {
     setExpenses(data || []);
   }
 
-  // Suggest opening cash: last closed shift's closing cash minus subsequent expenses
   async function prepareOpenForm() {
-    // Get the most recent closed shift (any user)
     const { data: lastClosed } = await supabase
       .from('shifts')
       .select('*')
@@ -71,7 +69,6 @@ export default function Shifts() {
 
     let suggested = 0;
     if (lastClosed) {
-      // Get expenses after that shift's close time
       const { data: exps } = await supabase
         .from('expenses')
         .select('amount')
@@ -117,47 +114,33 @@ export default function Shifts() {
     }
   }
 
-  // Calculate expected closing when closing shift
   async function prepareCloseForm() {
     if (!activeShift) return;
 
-    // Get cash sales for this shift
+    const { data: shiftTabs } = await supabase
+      .from('tabs')
+      .select('id')
+      .eq('shift_id', activeShift.id);
+
+    const tabIds = (shiftTabs || []).map(t => t.id);
+
+    if (tabIds.length === 0) {
+      setCashSales(0);
+      setExpectedClosing(activeShift.opening_cash);
+      setClosingCash('');
+      setShowCloseForm(true);
+      return;
+    }
+
     const { data: cashPayments } = await supabase
       .from('payments')
       .select('amount')
       .eq('payment_method', 'cash')
-      .in('tab_id', 
-        (await supabase.from('tabs').select('id').eq('shift_id', activeShift.id)).data?.map(t => t.id) || []
-      );
+      .in('tab_id', tabIds);
 
-    // Simpler: Fetch tabs of this shift, then payments with cash method.
-    // We'll do a direct query using inner join.
-    const { data: cashData } = await supabase
-      .from('payments')
-      .select('amount')
-      .eq('payment_method', 'cash')
-      .in('tab_id', 
-        supabase.from('tabs').select('id').eq('shift_id', activeShift.id)
-      );
-
-    // Actually the above is not valid JS. We'll do it in a single query using Supabase's nested select.
-    const { data: shiftTabs } = await supabase
-      .from('tabs')
-      .select(`
-        payments ( amount )
-      `)
-      .eq('shift_id', activeShift.id)
-      .eq('payments.payment_method', 'cash');
-
-    // Flatten and sum
-    let totalCash = 0;
-    (shiftTabs || []).forEach(tab => {
-      (tab.payments || []).forEach(p => {
-        totalCash += p.amount;
-      });
-    });
-
+    const totalCash = (cashPayments || []).reduce((sum, p) => sum + p.amount, 0);
     const expected = (activeShift.opening_cash || 0) + totalCash;
+
     setCashSales(totalCash);
     setExpectedClosing(expected);
     setClosingCash('');
@@ -194,7 +177,6 @@ export default function Shifts() {
     }
   }
 
-  // Expense recording
   async function handleAddExpense(e) {
     e.preventDefault();
     const amount = parseFloat(expenseAmount);
@@ -229,7 +211,7 @@ export default function Shifts() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
       </div>
     );
   }
@@ -237,51 +219,33 @@ export default function Shifts() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">🕐 Shifts</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">🕐 Shifts</h2>
         <div className="flex gap-2">
           {!activeShift && !isOwner && (
-            <button
-              onClick={prepareOpenForm}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-medium"
-            >
-              + Open Shift
-            </button>
+            <button onClick={prepareOpenForm} className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-medium">+ Open Shift</button>
           )}
           {activeShift && (
-            <button
-              onClick={prepareCloseForm}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-medium"
-            >
-              Close Shift
-            </button>
+            <button onClick={prepareCloseForm} className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-medium">Close Shift</button>
           )}
           {isOwner && (
-            <button
-              onClick={() => setShowExpenseForm(true)}
-              className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 font-medium"
-            >
-              + Expense
-            </button>
+            <button onClick={() => setShowExpenseForm(true)} className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 font-medium">+ Expense</button>
           )}
         </div>
       </div>
 
-      {/* Active Shift Card */}
       {activeShift && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-bold text-blue-900">Active Shift</h3>
-              <p className="text-blue-700 capitalize">{activeShift.shift_type} shift</p>
-              <p className="text-blue-700 text-sm">
-                Opened: {new Date(activeShift.opened_at).toLocaleTimeString('en-UG', {
-                  hour: '2-digit', minute: '2-digit'
-                })}
+              <h3 className="text-lg font-bold text-blue-900 dark:text-blue-300">Active Shift</h3>
+              <p className="text-blue-700 dark:text-blue-400 capitalize">{activeShift.shift_type} shift</p>
+              <p className="text-blue-700 dark:text-blue-400 text-sm">
+                Opened: {new Date(activeShift.opened_at).toLocaleTimeString('en-UG', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-blue-700">Opening Cash</p>
-              <p className="text-2xl font-bold text-blue-900">{formatCurrency(activeShift.opening_cash)}</p>
+              <p className="text-sm text-blue-700 dark:text-blue-400">Opening Cash</p>
+              <p className="text-2xl font-bold text-blue-900 dark:text-blue-300">{formatCurrency(activeShift.opening_cash)}</p>
             </div>
           </div>
         </div>
@@ -289,49 +253,28 @@ export default function Shifts() {
 
       {/* Open Shift Modal */}
       {showOpenForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border dark:border-gray-700">
             <div className="p-6">
-              <h3 className="text-xl font-bold mb-4">Open New Shift</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Open New Shift</h3>
               {suggestedOpening !== null && (
-                <div className="mb-3 p-3 bg-blue-50 rounded-lg text-sm">
-                  <p>Suggested opening cash (previous shift closing minus expenses):</p>
-                  <p className="font-bold text-lg">{formatCurrency(suggestedOpening)}</p>
+                <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-sm">
+                  <p className="text-gray-700 dark:text-gray-300">Suggested opening cash:</p>
+                  <p className="font-bold text-lg text-gray-900 dark:text-white">{formatCurrency(suggestedOpening)}</p>
                 </div>
               )}
               <form onSubmit={openShift} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Opening Cash (UGX)
-                  </label>
-                  <input
-                    type="number"
-                    value={openingCash}
-                    onChange={(e) => setOpeningCash(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-3 text-xl text-center"
-                    placeholder="0"
-                    required
-                    autoFocus
-                  />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Opening Cash (UGX)</label>
+                  <input type="number" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-3 text-xl text-center bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="0" required autoFocus />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notes (optional)
-                  </label>
-                  <textarea
-                    value={shiftNotes}
-                    onChange={(e) => setShiftNotes(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    rows="2"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes (optional)</label>
+                  <textarea value={shiftNotes} onChange={(e) => setShiftNotes(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" rows="2" />
                 </div>
                 <div className="flex gap-3">
-                  <button type="submit" className="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700">
-                    Open Shift
-                  </button>
-                  <button type="button" onClick={() => setShowOpenForm(false)} className="flex-1 bg-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300">
-                    Cancel
-                  </button>
+                  <button type="submit" className="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700">Open Shift</button>
+                  <button type="button" onClick={() => setShowOpenForm(false)} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
                 </div>
               </form>
             </div>
@@ -341,55 +284,37 @@ export default function Shifts() {
 
       {/* Close Shift Modal */}
       {showCloseForm && activeShift && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border dark:border-gray-700">
             <div className="p-6">
-              <h3 className="text-xl font-bold mb-4">Close Shift</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Close Shift</h3>
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600">Opening Cash</p>
-                  <p className="text-xl font-bold">{formatCurrency(activeShift.opening_cash)}</p>
+                <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Opening Cash</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(activeShift.opening_cash)}</p>
                 </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600">Cash Sales</p>
-                  <p className="text-xl font-bold">{formatCurrency(cashSales)}</p>
+                <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Cash Sales</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(cashSales)}</p>
                 </div>
-                <div className="p-3 bg-blue-50 rounded-lg col-span-2">
-                  <p className="text-sm text-blue-700">Expected Closing</p>
-                  <p className="text-2xl font-bold text-blue-900">{formatCurrency(expectedClosing)}</p>
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg col-span-2">
+                  <p className="text-sm text-blue-700 dark:text-blue-400">Expected Closing</p>
+                  <p className="text-2xl font-bold text-blue-900 dark:text-blue-300">{formatCurrency(expectedClosing)}</p>
                 </div>
               </div>
               <form onSubmit={closeShift} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Actual Closing Cash (UGX)
-                  </label>
-                  <input
-                    type="number"
-                    value={closingCash}
-                    onChange={(e) => {
-                      setClosingCash(e.target.value);
-                    }}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-3 text-xl text-center"
-                    placeholder="Count and enter"
-                    required
-                    autoFocus
-                  />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Actual Closing Cash (UGX)</label>
+                  <input type="number" value={closingCash} onChange={(e) => setClosingCash(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-3 text-xl text-center bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="Count and enter" required autoFocus />
                   {closingCash && (
-                    <p className={`mt-2 text-sm font-medium ${
-                      parseFloat(closingCash) - expectedClosing >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
+                    <p className={`mt-2 text-sm font-medium ${parseFloat(closingCash) - expectedClosing >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                       Variance: {formatCurrency(parseFloat(closingCash) - expectedClosing)}
                     </p>
                   )}
                 </div>
                 <div className="flex gap-3">
-                  <button type="submit" className="flex-1 bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700">
-                    Close Shift
-                  </button>
-                  <button type="button" onClick={() => setShowCloseForm(false)} className="flex-1 bg-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300">
-                    Cancel
-                  </button>
+                  <button type="submit" className="flex-1 bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700">Close Shift</button>
+                  <button type="button" onClick={() => setShowCloseForm(false)} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
                 </div>
               </form>
             </div>
@@ -399,34 +324,22 @@ export default function Shifts() {
 
       {/* Expense Form Modal */}
       {showExpenseForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border dark:border-gray-700">
             <div className="p-6">
-              <h3 className="text-xl font-bold mb-4">Record Expense</h3>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Record Expense</h3>
               <form onSubmit={handleAddExpense} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (UGX)</label>
-                  <input
-                    type="number"
-                    value={expenseAmount}
-                    onChange={(e) => setExpenseAmount(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    required
-                  />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount (UGX)</label>
+                  <input type="number" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                  <input
-                    type="text"
-                    value={expenseDesc}
-                    onChange={(e) => setExpenseDesc(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    placeholder="e.g., Cleaning supplies"
-                  />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                  <input type="text" value={expenseDesc} onChange={(e) => setExpenseDesc(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="e.g., Cleaning supplies" />
                 </div>
                 <div className="flex gap-3">
-                  <button type="submit" className="flex-1 bg-amber-600 text-white py-2 rounded-lg font-medium">Save</button>
-                  <button type="button" onClick={() => setShowExpenseForm(false)} className="flex-1 bg-gray-200 py-2 rounded-lg">Cancel</button>
+                  <button type="submit" className="flex-1 bg-amber-600 text-white py-2 rounded-lg font-medium hover:bg-amber-700">Save</button>
+                  <button type="button" onClick={() => setShowExpenseForm(false)} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
                 </div>
               </form>
             </div>
@@ -436,19 +349,19 @@ export default function Shifts() {
 
       {/* Expenses List (Owner only) */}
       {isOwner && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <h3 className="text-lg font-bold mb-3">Recent Expenses</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-6 border dark:border-gray-700">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Recent Expenses</h3>
           {expenses.length === 0 ? (
-            <p className="text-gray-500">No expenses recorded.</p>
+            <p className="text-gray-500 dark:text-gray-400">No expenses recorded.</p>
           ) : (
             <div className="space-y-2">
               {expenses.map(exp => (
-                <div key={exp.id} className="flex justify-between text-sm border-b pb-2">
+                <div key={exp.id} className="flex justify-between text-sm border-b dark:border-gray-600 pb-2">
                   <div>
-                    <p className="font-medium">{exp.description || 'No description'}</p>
-                    <p className="text-gray-500">{new Date(exp.created_at).toLocaleString()}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{exp.description || 'No description'}</p>
+                    <p className="text-gray-500 dark:text-gray-400">{new Date(exp.created_at).toLocaleString()}</p>
                   </div>
-                  <p className="font-bold text-red-600">{formatCurrency(exp.amount)}</p>
+                  <p className="font-bold text-red-600 dark:text-red-400">{formatCurrency(exp.amount)}</p>
                 </div>
               ))}
             </div>
@@ -456,48 +369,38 @@ export default function Shifts() {
         </div>
       )}
 
-      {/* Shifts History Table (unchanged from before, but keep it) */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      {/* Shifts History Table */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border dark:border-gray-700">
         <table className="w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cashier</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Opening</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Expected</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Closing</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Variance</th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Date</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Cashier</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Type</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Opening</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Expected</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Closing</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Variance</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {shifts.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-500">No shifts recorded yet.</td>
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">No shifts recorded yet.</td>
               </tr>
             ) : (
               shifts.map((shift) => (
-                <tr key={shift.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {new Date(shift.opened_at).toLocaleDateString('en-UG', { day: 'numeric', month: 'short' })}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-medium">{shift.users?.full_name || '—'}</td>
-                  <td className="px-4 py-3 text-sm capitalize">{shift.shift_type}</td>
-                  <td className="px-4 py-3 text-sm text-right">{formatCurrency(shift.opening_cash)}</td>
-                  <td className="px-4 py-3 text-sm text-right">{shift.expected_cash ? formatCurrency(shift.expected_cash) : '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right">{shift.status === 'closed' ? formatCurrency(shift.closing_cash) : '—'}</td>
-                  <td className={`px-4 py-3 text-sm text-right font-medium ${
-                    shift.variance > 0 ? 'text-green-600' : shift.variance < 0 ? 'text-red-600' : 'text-gray-600'
-                  }`}>
-                    {shift.status === 'closed' ? formatCurrency(shift.variance) : '—'}
-                  </td>
+                <tr key={shift.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{new Date(shift.opened_at).toLocaleDateString('en-UG', { day: 'numeric', month: 'short' })}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{shift.users?.full_name || '—'}</td>
+                  <td className="px-4 py-3 text-sm capitalize text-gray-900 dark:text-white">{shift.shift_type}</td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-900 dark:text-white">{formatCurrency(shift.opening_cash)}</td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-900 dark:text-white">{shift.expected_cash ? formatCurrency(shift.expected_cash) : '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right text-gray-900 dark:text-white">{shift.status === 'closed' ? formatCurrency(shift.closing_cash) : '—'}</td>
+                  <td className={`px-4 py-3 text-sm text-right font-medium ${shift.variance > 0 ? 'text-green-600 dark:text-green-400' : shift.variance < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-300'}`}>{shift.status === 'closed' ? formatCurrency(shift.variance) : '—'}</td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      shift.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {shift.status}
-                    </span>
+                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${shift.status === 'open' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>{shift.status}</span>
                   </td>
                 </tr>
               ))
