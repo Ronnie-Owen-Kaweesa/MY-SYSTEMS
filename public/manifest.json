@@ -1,0 +1,9 @@
+{
+  "short_name": "Bar Mgt",
+  "name": "Bar Management System",
+  "icons": [],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1a202c",
+  "background_color": "#ffffff"
+}
