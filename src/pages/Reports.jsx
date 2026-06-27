@@ -2,6 +2,18 @@ import React, { useState, useEffect } from 'react';
 import supabase from '../services/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Bar } from 'react-chartjs-2';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 export default function Reports() {
   const { user } = useAuth();
@@ -73,7 +85,6 @@ export default function Reports() {
   }
 
   async function fetchStockVariance() {
-    // Placeholder – can be enhanced later
     setStockVariance([]);
   }
 
@@ -109,35 +120,32 @@ export default function Reports() {
   async function fetchCashierPerformance() {
     const { data: shifts } = await supabase
       .from('shifts')
-      .select('*, users!shifts_cashier_id_fkey(full_name)')
+      .select('*, users!shifts_cashier_id_fkey(full_name, role)')
       .gte('opened_at', dateRange.start)
       .lte('opened_at', dateRange.end + 'T23:59:59');
+
     const map = {};
     for (const shift of (shifts || [])) {
+      // Exclude owner shifts
+      if (shift.users?.role === 'owner') continue;
+
       const { data: tabs } = await supabase
         .from('tabs')
         .select('id')
         .eq('shift_id', shift.id)
         .eq('status', 'closed');
       let sales = 0;
-      let items = 0;
       for (const tab of (tabs || [])) {
         const { data: payments } = await supabase
           .from('payments')
           .select('amount')
           .eq('tab_id', tab.id);
         sales += (payments || []).reduce((s, p) => s + p.amount, 0);
-        const { data: its } = await supabase
-          .from('tab_items')
-          .select('quantity')
-          .eq('tab_id', tab.id);
-        items += (its || []).reduce((s, i) => s + i.quantity, 0);
       }
       const name = shift.users?.full_name || 'Unknown';
-      if (!map[name]) map[name] = { name, shifts: 0, totalSales: 0, totalItems: 0, variance: 0 };
+      if (!map[name]) map[name] = { name, shifts: 0, totalSales: 0, variance: 0 };
       map[name].shifts += 1;
       map[name].totalSales += sales;
-      map[name].totalItems += items;
       map[name].variance += shift.variance || 0;
     }
     setCashierPerformance(Object.values(map));
@@ -158,6 +166,39 @@ export default function Reports() {
     { key: 'profit', label: 'Profit by Product', icon: '💹' },
     { key: 'cashier_performance', label: 'Cashier Performance', icon: '👥' },
   ];
+
+  const cashierChartData = {
+    labels: cashierPerformance.map(c => c.name),
+    datasets: [
+      {
+        label: 'Total Sales',
+        data: cashierPerformance.map(c => c.totalSales),
+        backgroundColor: 'rgba(34, 197, 94, 0.6)',
+        borderColor: 'rgba(34, 197, 94, 1)',
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top',
+      },
+      title: {
+        display: true,
+        text: 'Cashier Sales Comparison',
+      },
+    },
+    scales: {
+      y: {
+        ticks: {
+          callback: (value) => formatCurrency(value),
+        },
+      },
+    },
+  };
 
   return (
     <div>
@@ -279,28 +320,37 @@ export default function Reports() {
             )}
 
             {reportType === 'cashier_performance' && (
-              <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-gray-700">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Cashier</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Sales</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Variance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {cashierPerformance.map(c => (
-                    <tr key={c.name} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{c.name}</td>
-                      <td className="px-4 py-3 text-sm text-right font-bold text-gray-900 dark:text-white">{formatCurrency(c.totalSales)}</td>
-                      <td className={`px-4 py-3 text-sm text-right font-bold ${
-                        c.variance > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {formatCurrency(c.variance)}
-                      </td>
+              <div>
+                {cashierPerformance.length > 0 && (
+                  <div className="p-6">
+                    <div className="max-w-2xl mx-auto">
+                      <Bar data={cashierChartData} options={chartOptions} />
+                    </div>
+                  </div>
+                )}
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Cashier</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Sales</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Variance</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {cashierPerformance.map(c => (
+                      <tr key={c.name} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{c.name}</td>
+                        <td className="px-4 py-3 text-sm text-right font-bold text-gray-900 dark:text-white">{formatCurrency(c.totalSales)}</td>
+                        <td className={`px-4 py-3 text-sm text-right font-bold ${
+                          c.variance > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                        }`}>
+                          {formatCurrency(c.variance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

@@ -20,28 +20,12 @@ export default function Receipts() {
     try {
       let query = supabase
         .from('receipts')
-        .select(`
-          id,
-          receipt_number,
-          created_at,
-          printed,
-          sms_sent,
-          whatsapp_sent,
-          tab_id,
-          tab:tab_id (
-            customer_name,
-            total,
-            status,
-            phone_number,
-            cashier_id,
-            cashier:users!tabs_cashier_id_fkey (full_name)
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(100);
 
       if (search) {
-        query = query.or(`receipt_number.ilike.%${search}%,tab.customer_name.ilike.%${search}%`);
+        query = query.or(`receipt_number.ilike.%${search}%,customer_name.ilike.%${search}%`);
       }
       if (from) query = query.gte('created_at', `${from}T00:00:00`);
       if (to) query = query.lte('created_at', `${to}T23:59:59`);
@@ -53,8 +37,9 @@ export default function Receipts() {
     } catch (error) {
       toast.error('Failed to load receipts');
       console.error(error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const handleSearch = () => {
@@ -64,26 +49,22 @@ export default function Receipts() {
   const handleReprint = (receipt) => {
     const win = window.open('', '_blank');
     const date = new Date(receipt.created_at).toLocaleString('en-UG');
-    const customer = receipt.tab?.customer_name || 'N/A';
-    const cashier = receipt.tab?.cashier?.full_name || 'N/A';
-    const phone = receipt.tab?.phone_number || '';
-    const total = formatCurrency(receipt.tab?.total);
-    const status = receipt.tab?.status || '';
+    const customer = receipt.customer_name || 'N/A';
+    const cashier = receipt.cashier_name || 'N/A';
+    const total = formatCurrency(receipt.total_amount);
 
     const html = `
       <html>
-        <head><title>Receipt ${receipt.receipt_number}</title>
+        <head><title>Omuka Bar Receipt ${receipt.receipt_number}</title>
         <style>body{font-family:monospace;width:280px;margin:0 auto;padding:10px}h2{text-align:center}p{margin:4px 0}.footer{text-align:center;margin-top:20px}</style></head>
         <body>
-          <h2>BAR RECEIPT</h2>
+          <h2>OMUKA BAR RECEIPT</h2>
           <p>Receipt #: ${receipt.receipt_number}</p>
           <p>Date: ${date}</p>
           <p>Customer: ${customer}</p>
-          ${phone ? `<p>Phone: ${phone}</p>` : ''}
           <p>Cashier: ${cashier}</p>
           <p>Total: ${total}</p>
-          <p>Status: ${status}</p>
-          <div class="footer"><p>Thank you!</p></div>
+          <div class="footer"><p>Thank you for choosing Omuka Bar!</p></div>
         </body>
       </html>`;
     win.document.write(html);
@@ -182,9 +163,9 @@ export default function Receipts() {
                 {receipts.map((r) => (
                   <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="px-4 py-3 font-mono text-xs text-gray-900 dark:text-white">{r.receipt_number}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{r.tab?.customer_name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{r.tab?.cashier?.full_name || '—'}</td>
-                    <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">{formatCurrency(r.tab?.total)}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{r.customer_name || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{r.cashier_name || '—'}</td>
+                    <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">{formatCurrency(r.total_amount)}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
                       {new Date(r.created_at).toLocaleString('en-UG', {
                         day: 'numeric',
