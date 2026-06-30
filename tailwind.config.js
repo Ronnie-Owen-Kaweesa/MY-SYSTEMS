@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: 'class',   // <-- add this line
+  darkMode: 'class',
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
@@ -8,9 +8,10 @@ module.exports = {
     extend: {
       colors: {
         brand: {
+          brown: '#6A2F05',
+          green: '#05C970',
+          yellow: '#F4C542',
           dark: '#0F172A',
-          accent: '#D97706',
-          light: '#FEF3C7',
           burgundy: '#9B2C2C',
         }
       },

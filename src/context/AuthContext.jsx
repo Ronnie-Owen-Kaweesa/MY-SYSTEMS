@@ -1,5 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { loginUser, logout as authLogout, getCurrentUser } from '../services/authService';
+import { isOnline, cacheUsers } from '../services/offlineDB';
+import supabase from '../services/supabaseClient';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext(null);
@@ -10,13 +12,25 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const inactivityTimer = useRef(null);
 
+  // Cache users automatically whenever online
+  const fetchAndCacheUsers = async () => {
+    if (isOnline()) {
+      const { data } = await supabase.from('users').select('id, full_name, role, pin_code, password');
+      if (data) await cacheUsers(data);
+    }
+  };
+
   useEffect(() => {
     const storedUser = getCurrentUser();
-    if (storedUser && storedUser.expiresAt && new Date(storedUser.expiresAt) > new Date()) {
-      setUser(storedUser);
-    } else {
-      authLogout();
+    if (storedUser) {
+      // Offline or valid session → keep logged in
+      if (!isOnline() || new Date(storedUser.expiresAt) > new Date()) {
+        setUser(storedUser);
+      } else {
+        authLogout();
+      }
     }
+    fetchAndCacheUsers();
     setLoading(false);
   }, []);
 
@@ -46,6 +60,7 @@ export function AuthProvider({ children }) {
     const fullUser = { ...userData, expiresAt };
     localStorage.setItem('bar_user', JSON.stringify(fullUser));
     setUser(fullUser);
+    await fetchAndCacheUsers(); // refresh cache
     return fullUser;
   };
 
@@ -55,16 +70,11 @@ export function AuthProvider({ children }) {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
   };
 
-  const value = {
-    user,
-    login,
-    logout,
-    isOwner: user?.role === 'owner',
-    isCashier: user?.role === 'cashier',
-    loading,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, login, logout, isOwner: user?.role === 'owner', isCashier: user?.role === 'cashier', loading }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

@@ -1,59 +1,45 @@
 import supabase from './supabaseClient';
+import { isOnline, getCachedUserByPin, getCachedUserByPassword } from './offlineDB';
 
-// Login with either PIN or password
 export async function loginUser(credential) {
-  try {
-    const isNumeric = /^\d+$/.test(credential);
+  const isNumeric = /^\d+$/.test(credential);
 
+  if (!isOnline()) {
+    // Offline – verify against local cache
     if (isNumeric) {
-      // Try PIN
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('pin_code', credential)
-        .eq('is_active', true)
-        .single();
-
-      if (error || !data) {
-        throw new Error('Invalid PIN or password');
-      }
-      return {
-        id: data.id,
-        name: data.full_name,
-        role: data.role,
-        phone: data.phone_number,
-      };
+      const user = await getCachedUserByPin(credential);
+      if (!user) throw new Error('Invalid PIN or password');
+      return { id: user.id, name: user.full_name, role: user.role };
     } else {
-      // Try password
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('password', credential)
-        .eq('is_active', true)
-        .single();
-
-      if (error || !data) {
-        throw new Error('Invalid PIN or password');
-      }
-      return {
-        id: data.id,
-        name: data.full_name,
-        role: data.role,
-        phone: data.phone_number,
-      };
+      const user = await getCachedUserByPassword(credential);
+      if (!user) throw new Error('Invalid PIN or password');
+      return { id: user.id, name: user.full_name, role: user.role };
     }
-  } catch (error) {
-    throw new Error(error.message);
   }
-}
 
-// Owner can set a password for any user
-export async function setUserPassword(userId, newPassword) {
-  const { error } = await supabase
-    .from('users')
-    .update({ password: newPassword })
-    .eq('id', userId);
-  if (error) throw error;
+  // Online – normal Supabase verification
+  if (isNumeric) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('pin_code', credential)
+      .eq('is_active', true)
+      .single();
+    if (error || !data) throw new Error('Invalid PIN or password');
+    return { id: data.id, name: data.full_name, role: data.role };
+  } else {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('is_active', true);
+    if (error) throw new Error('Login failed');
+    for (const user of users) {
+      if (user.password && user.password === credential) {
+        return { id: user.id, name: user.full_name, role: user.role };
+      }
+    }
+    throw new Error('Invalid PIN or password');
+  }
 }
 
 export function logout() {
@@ -63,9 +49,5 @@ export function logout() {
 export function getCurrentUser() {
   const userStr = localStorage.getItem('bar_user');
   if (!userStr) return null;
-  try {
-    return JSON.parse(userStr);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(userStr); } catch { return null; }
 }

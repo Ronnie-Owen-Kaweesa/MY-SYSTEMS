@@ -2,13 +2,42 @@ import React, { useState, useEffect } from 'react';
 import supabase from '../services/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
 import { Bar } from 'react-chartjs-2';
+import { isOnline } from '../services/offlineDB';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 export default function Reports() {
   const { user } = useAuth();
+
+  // ---------- ONLINE CHECK ----------
+  if (!isOnline()) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-4">📡 No Internet Connection</p>
+        <p className="text-gray-500 dark:text-gray-400 mb-6">
+          Reports require an active internet connection.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="bg-brand-green text-white px-6 py-2 rounded-lg hover:bg-green-700"
+        >
+          Reload
+        </button>
+      </div>
+    );
+  }
+  // ---------- END ONLINE CHECK ----------
+
   const [loading, setLoading] = useState(true);
   const [reportType, setReportType] = useState('sales');
   const [dateRange, setDateRange] = useState({
@@ -36,15 +65,35 @@ export default function Reports() {
   }
 
   async function fetchSales() {
-    const { data: payments } = await supabase.from('payments').select('amount, payment_method, created_at').gte('created_at', dateRange.start).lte('created_at', dateRange.end + 'T23:59:59');
-    const { data: expenses } = await supabase.from('expenses').select('amount, created_at').gte('created_at', dateRange.start).lte('created_at', dateRange.end + 'T23:59:59');
+    const { data: payments } = await supabase
+      .from('payments')
+      .select('amount, payment_method, created_at')
+      .gte('created_at', dateRange.start)
+      .lte('created_at', dateRange.end + 'T23:59:59');
+    const { data: expenses } = await supabase
+      .from('expenses')
+      .select('amount, created_at')
+      .gte('created_at', dateRange.start)
+      .lte('created_at', dateRange.end + 'T23:59:59');
+
     const groupedPayments = groupByPeriod(payments || [], aggregation, 'sales');
     const groupedExpenses = groupByPeriod(expenses || [], aggregation, 'expenses');
     const allPeriods = new Set([...Object.keys(groupedPayments), ...Object.keys(groupedExpenses)]);
     const combined = Array.from(allPeriods).sort().map(period => {
       const sales = groupedPayments[period] || { total: 0, cash: 0, mtn_money: 0, airtel_money: 0, visa: 0, pesapal: 0, count: 0 };
       const expenseAmt = groupedExpenses[period]?.total || 0;
-      return { period, totalSales: sales.total, cash: sales.cash, mtn_money: sales.mtn_money, airtel_money: sales.airtel_money, visa: sales.visa, pesapal: sales.pesapal, count: sales.count, expenses: expenseAmt, net: sales.total - expenseAmt };
+      return {
+        period,
+        totalSales: sales.total,
+        cash: sales.cash,
+        mtn_money: sales.mtn_money,
+        airtel_money: sales.airtel_money,
+        visa: sales.visa,
+        pesapal: sales.pesapal,
+        count: sales.count,
+        expenses: expenseAmt,
+        net: sales.total - expenseAmt,
+      };
     });
     setSalesData(combined);
     const totalSales = combined.reduce((s, d) => s + d.totalSales, 0);
@@ -58,9 +107,14 @@ export default function Reports() {
       const date = new Date(record.created_at);
       let key;
       if (agg === 'daily') key = date.toISOString().split('T')[0];
-      else if (agg === 'weekly') { const day = date.getDay(); const diff = date.getDate() - day + (day === 0 ? -6 : 1); const monday = new Date(date.setDate(diff)); key = monday.toISOString().split('T')[0]; }
-      else if (agg === 'monthly') key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      else if (agg === 'weekly') {
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(date.setDate(diff));
+        key = monday.toISOString().split('T')[0];
+      } else if (agg === 'monthly') key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       else if (agg === 'yearly') key = `${date.getFullYear()}`;
+
       if (!map[key]) map[key] = { total: 0, cash: 0, mtn_money: 0, airtel_money: 0, visa: 0, pesapal: 0, count: 0 };
       map[key].total += record.amount || 0;
       if (type === 'sales' && record.payment_method) map[key][record.payment_method] = (map[key][record.payment_method] || 0) + record.amount;
@@ -86,7 +140,11 @@ export default function Reports() {
   }
 
   async function fetchSalesByProductData() {
-    const { data } = await supabase.from('tab_items').select('quantity, total, products(name, product_code)').gte('created_at', dateRange.start).lte('created_at', dateRange.end + 'T23:59:59');
+    const { data } = await supabase
+      .from('tab_items')
+      .select('quantity, total, products(name, product_code)')
+      .gte('created_at', dateRange.start)
+      .lte('created_at', dateRange.end + 'T23:59:59');
     const map = {};
     (data || []).forEach(item => {
       const n = item.products?.name || 'Unknown';
@@ -98,7 +156,11 @@ export default function Reports() {
   }
 
   async function fetchProfitByProductData() {
-    const { data } = await supabase.from('tab_items').select('quantity, total, unit_price, products(cost_price, name)').gte('created_at', dateRange.start).lte('created_at', dateRange.end + 'T23:59:59');
+    const { data } = await supabase
+      .from('tab_items')
+      .select('quantity, total, unit_price, products(cost_price, name)')
+      .gte('created_at', dateRange.start)
+      .lte('created_at', dateRange.end + 'T23:59:59');
     const map = {};
     (data || []).forEach(item => {
       const n = item.products?.name || 'Unknown';
@@ -108,25 +170,44 @@ export default function Reports() {
       map[n].revenue += item.total;
       map[n].cost += cost * item.quantity;
     });
-    const arr = Object.values(map).map(p => ({ ...p, profit: p.revenue - p.cost, margin: p.revenue ? ((p.revenue - p.cost) / p.revenue * 100).toFixed(1) : 0 })).sort((a, b) => b.profit - a.profit);
+    const arr = Object.values(map)
+      .map(p => ({
+        ...p,
+        profit: p.revenue - p.cost,
+        margin: p.revenue ? ((p.revenue - p.cost) / p.revenue * 100).toFixed(1) : 0,
+      }))
+      .sort((a, b) => b.profit - a.profit);
     setProfitByProduct(arr);
     setSummary({ totalProfit: arr.reduce((s, p) => s + p.profit, 0), totalRevenue: arr.reduce((s, p) => s + p.revenue, 0) });
   }
 
   async function fetchCashierPerformanceData() {
-    const { data: shifts } = await supabase.from('shifts').select('*, users!shifts_cashier_id_fkey(full_name, role)').gte('opened_at', dateRange.start).lte('opened_at', dateRange.end + 'T23:59:59');
+    const { data: shifts } = await supabase
+      .from('shifts')
+      .select('*, users!shifts_cashier_id_fkey(full_name, role)')
+      .gte('opened_at', dateRange.start)
+      .lte('opened_at', dateRange.end + 'T23:59:59');
     const map = {};
     for (const shift of (shifts || [])) {
       if (shift.users?.role === 'owner') continue;
-      const { data: tabs } = await supabase.from('tabs').select('id').eq('shift_id', shift.id).eq('status', 'closed');
+      const { data: tabs } = await supabase
+        .from('tabs')
+        .select('id')
+        .eq('shift_id', shift.id)
+        .eq('status', 'closed');
       let sales = 0;
       for (const tab of (tabs || [])) {
-        const { data: payments } = await supabase.from('payments').select('amount').eq('tab_id', tab.id);
+        const { data: payments } = await supabase
+          .from('payments')
+          .select('amount')
+          .eq('tab_id', tab.id);
         sales += (payments || []).reduce((s, p) => s + p.amount, 0);
       }
       const name = shift.users?.full_name || 'Unknown';
       if (!map[name]) map[name] = { name, shifts: 0, totalSales: 0, variance: 0 };
-      map[name].shifts += 1; map[name].totalSales += sales; map[name].variance += shift.variance || 0;
+      map[name].shifts += 1;
+      map[name].totalSales += sales;
+      map[name].variance += shift.variance || 0;
     }
     setCashierPerformance(Object.values(map));
   }
@@ -137,11 +218,23 @@ export default function Reports() {
 
   const chartData = {
     labels: salesData.map(d => formatPeriod(d.period, aggregation)),
-    datasets: [{ label: 'Total Sales', data: salesData.map(d => d.totalSales), backgroundColor: 'rgba(34,197,94,0.6)', borderColor: 'rgba(34,197,94,1)', borderWidth: 1 }],
+    datasets: [{
+      label: 'Total Sales',
+      data: salesData.map(d => d.totalSales),
+      backgroundColor: 'rgba(34,197,94,0.6)',
+      borderColor: 'rgba(34,197,94,1)',
+      borderWidth: 1,
+    }],
   };
   const cashierChartData = {
     labels: cashierPerformance.map(c => c.name),
-    datasets: [{ label: 'Total Sales', data: cashierPerformance.map(c => c.totalSales), backgroundColor: 'rgba(34,197,94,0.6)', borderColor: 'rgba(34,197,94,1)', borderWidth: 1 }],
+    datasets: [{
+      label: 'Total Sales',
+      data: cashierPerformance.map(c => c.totalSales),
+      backgroundColor: 'rgba(34,197,94,0.6)',
+      borderColor: 'rgba(34,197,94,1)',
+      borderWidth: 1,
+    }],
   };
   const chartOptions = {
     responsive: true,
@@ -156,42 +249,57 @@ export default function Reports() {
     { key: 'cashier', label: 'Cashier Performance', icon: '👥' },
   ];
 
-  // Sets the document title to a PDF-friendly name, then prints, then restores
+  // Download PDF handler
   const handleDownloadPDF = () => {
     const originalTitle = document.title;
     let pdfTitle = 'Omuka_Bar_report';
-    if (reportType === 'sales') {
-      pdfTitle = `Omuka_Bar_${aggregation}_sales_report`;
-    } else if (reportType === 'product') {
-      pdfTitle = 'Omuka_Bar_sales_by_product';
-    } else if (reportType === 'profit') {
-      pdfTitle = 'Omuka_Bar_profit_report';
-    } else if (reportType === 'cashier') {
-      pdfTitle = 'Omuka_Bar_cashier_performance';
-    }
+    if (reportType === 'sales') pdfTitle = `Omuka_Bar_${aggregation}_sales_report`;
+    else if (reportType === 'product') pdfTitle = 'Omuka_Bar_sales_by_product';
+    else if (reportType === 'profit') pdfTitle = 'Omuka_Bar_profit_report';
+    else if (reportType === 'cashier') pdfTitle = 'Omuka_Bar_cashier_performance';
     document.title = pdfTitle;
     window.print();
-    // Restore after a short delay (print dialog is synchronous in some browsers, but we wait)
     setTimeout(() => { document.title = originalTitle; }, 100);
   };
 
   return (
     <div>
       <style>{`@media print { .no-print, .sidebar, header, .hide-on-print, .print\\:hidden { display: none !important; } body { background: white !important; color: black !important; } .print-only { display: block !important; } table { border-collapse: collapse; width: 100%; } th, td { border: 1px solid #ddd; padding: 8px; text-align: left; } }`}</style>
+
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 no-print">📈 Reports</h2>
+
       <div className="flex flex-wrap gap-2 mb-6 no-print">
         {reportTypes.map(rt => (
-          <button key={rt.key} onClick={() => setReportType(rt.key)} className={`px-4 py-2 rounded-lg font-medium transition-colors ${reportType === rt.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border dark:border-gray-600'}`}>{rt.icon} {rt.label}</button>
+          <button
+            key={rt.key}
+            onClick={() => setReportType(rt.key)}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${reportType === rt.key ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border dark:border-gray-600'}`}
+          >
+            {rt.icon} {rt.label}
+          </button>
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-4 mb-6 bg-white dark:bg-gray-800 p-4 rounded-lg shadow border dark:border-gray-700 no-print">
-        <div><label className="block text-sm text-gray-600 dark:text-gray-400">Start</label><input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })} className="border dark:border-gray-600 rounded px-3 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" /></div>
-        <div><label className="block text-sm text-gray-600 dark:text-gray-400">End</label><input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })} className="border dark:border-gray-600 rounded px-3 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" /></div>
-        {reportType === 'sales' && (
-          <div><label className="block text-sm text-gray-600 dark:text-gray-400">Group by</label><select value={aggregation} onChange={(e) => setAggregation(e.target.value)} className="border dark:border-gray-600 rounded px-3 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></div>
-        )}
 
-        {/* Print + PDF buttons */}
+      <div className="flex flex-wrap items-center gap-4 mb-6 bg-white dark:bg-gray-800 p-4 rounded-lg shadow border dark:border-gray-700 no-print">
+        <div>
+          <label className="block text-sm text-gray-600 dark:text-gray-400">Start</label>
+          <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })} className="border dark:border-gray-600 rounded px-3 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-600 dark:text-gray-400">End</label>
+          <input type="date" value={dateRange.end} onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })} className="border dark:border-gray-600 rounded px-3 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+        </div>
+        {reportType === 'sales' && (
+          <div>
+            <label className="block text-sm text-gray-600 dark:text-gray-400">Group by</label>
+            <select value={aggregation} onChange={(e) => setAggregation(e.target.value)} className="border dark:border-gray-600 rounded px-3 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+        )}
         <button onClick={() => window.print()} className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-medium no-print">🖨️ Print Report</button>
         <button onClick={handleDownloadPDF} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium no-print">📥 Download PDF</button>
       </div>
@@ -209,6 +317,12 @@ export default function Reports() {
                   <p>Total Sales: <strong>{formatCurrency(summary.totalSales)}</strong></p>
                   <p>Total Expenses: <strong className="text-red-600">{formatCurrency(summary.totalExpenses)}</strong></p>
                   <p>Net: <strong className={summary.net >= 0 ? 'text-green-600' : 'text-red-600'}>{formatCurrency(summary.net)}</strong></p>
+                </div>
+              )}
+
+              {salesData.length > 0 && (
+                <div className="max-w-2xl mx-auto mb-8 print:hidden">
+                  <Bar data={chartData} options={chartOptions} />
                 </div>
               )}
 
@@ -251,6 +365,7 @@ export default function Reports() {
                 </div>
               )}
 
+              {/* Signature Block – visible only when printing */}
               <div className="print-only hidden mt-8 border-t pt-4 text-sm">
                 <p className="mb-4">Report Period: {dateRange.start} to {dateRange.end}  |  Aggregation: {aggregation}</p>
                 <div className="flex justify-between">
@@ -339,7 +454,11 @@ export default function Reports() {
           {reportType === 'cashier' && (
             <div className="p-6 print:p-0">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Cashier Performance</h3>
-              {cashierPerformance.length > 0 && <div className="max-w-2xl mx-auto mb-8 print:hidden"><Bar data={cashierChartData} options={chartOptions} /></div>}
+              {cashierPerformance.length > 0 && (
+                <div className="max-w-2xl mx-auto mb-8 print:hidden">
+                  <Bar data={cashierChartData} options={chartOptions} />
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 dark:bg-gray-700">

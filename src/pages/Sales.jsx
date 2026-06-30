@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import supabase from '../services/supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import { isOnline } from '../services/offlineDB';
 
 const PAYMENT_METHODS = [
   { value: 'cash', label: 'Cash', icon: '💵' },
@@ -56,10 +57,11 @@ export default function Sales() {
   const [historySuggestions, setHistorySuggestions] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
 
-  // Paying a credit tab
   const [payingCreditTab, setPayingCreditTab] = useState(null);
 
-  useEffect(() => { loadInitialData(); }, []);
+  useEffect(() => {
+    loadInitialData();
+  }, []);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -68,6 +70,7 @@ export default function Sales() {
   };
 
   const checkActiveShift = async () => {
+    if (!isOnline()) return;
     const { data } = await supabase
       .from('shifts')
       .select('*')
@@ -78,16 +81,22 @@ export default function Sales() {
   };
 
   const fetchProducts = async () => {
+    if (!isOnline()) {
+      toast.error('No internet connection');
+      return;
+    }
     const { data } = await supabase.from('products').select('*').eq('is_active', true).order('name');
     setProducts(data || []);
   };
 
   const fetchTabs = async () => {
+    if (!isOnline()) return;
     const { data } = await supabase.from('tabs').select('*').order('opened_at', { ascending: false });
     setTabs(data || []);
   };
 
   const fetchTabItems = async (tabId) => {
+    if (!isOnline()) return;
     const { data } = await supabase.from('tab_items').select('*, products(name, product_code)').eq('tab_id', tabId);
     setTabItems(data || []);
   };
@@ -97,27 +106,20 @@ export default function Sales() {
   // ---------- AUTO‑SUGGEST (name or phone) ----------
   const handleNameChange = async (value) => {
     setNewCustomerName(value);
-    if (value.length > 0) {
+    if (value.length > 0 && isOnline()) {
       const { data, error } = await supabase
         .from('tabs')
         .select('customer_name, phone_number')
         .or(`customer_name.ilike.%${value}%,phone_number.ilike.%${value}%`)
         .order('opened_at', { ascending: false })
         .limit(10);
-      if (error) {
-        const { data: fallback } = await supabase
-          .from('tabs')
-          .select('customer_name, phone_number')
-          .ilike('customer_name', `%${value}%`)
-          .order('opened_at', { ascending: false })
-          .limit(10);
-        const unique = Array.from(new Map((fallback || []).map(d => [d.customer_name, d])).values());
+      if (!error) {
+        const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
         setSuggestions(unique);
-        return;
       }
-      const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
-      setSuggestions(unique);
-    } else setSuggestions([]);
+    } else {
+      setSuggestions([]);
+    }
   };
 
   const selectSuggestion = (cust) => {
@@ -127,6 +129,10 @@ export default function Sales() {
   };
 
   const handleOpenTab = async () => {
+    if (!isOnline()) {
+      toast.error('You are offline. Tab opening requires internet.');
+      return;
+    }
     if (!activeShift) { toast.error('No active shift. Please start one first.'); return; }
     if (!newCustomerName.trim()) { toast.error('Enter customer name'); return; }
 
@@ -155,54 +161,43 @@ export default function Sales() {
   // ---------- HISTORY SEARCH ----------
   const handleHistorySearchChange = async (value) => {
     setHistorySearch(value);
-    if (value.trim().length > 0) {
+    if (value.trim().length > 0 && isOnline()) {
       const { data, error } = await supabase
         .from('tabs')
         .select('customer_name')
         .or(`customer_name.ilike.%${value}%,phone_number.ilike.%${value}%`)
         .order('opened_at', { ascending: false })
         .limit(8);
-      if (error) {
-        const { data: fallback } = await supabase
-          .from('tabs')
-          .select('customer_name')
-          .ilike('customer_name', `%${value}%`)
-          .order('opened_at', { ascending: false })
-          .limit(8);
-        const unique = Array.from(new Map((fallback || []).map(d => [d.customer_name, d])).values());
+      if (!error) {
+        const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
         setHistorySuggestions(unique);
-        return;
       }
-      const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
-      setHistorySuggestions(unique);
-    } else setHistorySuggestions([]);
+    } else {
+      setHistorySuggestions([]);
+    }
   };
 
   const searchCustomerHistory = async (nameOverride) => {
+    if (!isOnline()) {
+      toast.error('Customer history requires internet.');
+      return;
+    }
     const searchName = nameOverride || historySearch;
     if (!searchName.trim()) { toast.error('Enter a customer name or phone'); return; }
     const { data, error } = await supabase.from('tabs')
       .select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`)
       .or(`customer_name.ilike.%${searchName.trim()}%,phone_number.ilike.%${searchName.trim()}%`)
       .order('opened_at', { ascending: false });
-    if (error) {
-      const { data: fallback } = await supabase.from('tabs')
-        .select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`)
-        .ilike('customer_name', `%${searchName.trim()}%`)
-        .order('opened_at', { ascending: false });
-      if (fallback) {
-        setCustomerHistory(fallback);
-        setHistorySuggestions([]);
-        return;
-      }
-      toast.error('Search failed');
-      return;
-    }
+    if (error) { toast.error('Search failed'); return; }
     setCustomerHistory(data || []);
     setHistorySuggestions([]);
   };
 
   const handleAddItem = async () => {
+    if (!isOnline()) {
+      toast.error('Adding items requires internet.');
+      return;
+    }
     if (!activeTab || !selectedProduct) return;
     const qty = parseInt(quantity) || 1;
     if (selectedProduct.current_stock < qty) { toast.error(`Not enough stock. Only ${selectedProduct.current_stock} left.`); return; }
@@ -220,6 +215,10 @@ export default function Sales() {
   };
 
   const handleRemoveItem = async (itemId, productId, itemQty) => {
+    if (!isOnline()) {
+      toast.error('Removing items requires internet.');
+      return;
+    }
     if (!activeTab) return;
     await supabase.from('tab_items').delete().eq('id', itemId);
     const { data: prod } = await supabase.from('products').select('current_stock').eq('id', productId).single();
@@ -234,6 +233,10 @@ export default function Sales() {
 
   // ---------- PAYMENT / CREDIT ----------
   const handlePayment = async (isCredit = false) => {
+    if (!isOnline()) {
+      toast.error('Payment requires internet.');
+      return;
+    }
     if (!activeTab) return;
     const total = calculateTotal();
     let paid = 0;
@@ -256,14 +259,12 @@ export default function Sales() {
     }
 
     const newStatus = isCredit ? 'credit' : 'closed';
-
     await supabase.from('tabs').update({
       status: newStatus,
-      total: total,
+      total,
       closed_at: new Date().toISOString()
     }).eq('id', activeTab.id);
 
-    // Create receipt (marked unpaid if credit)
     const receiptNumber = 'RCP-' + Date.now();
     const { data: receipt, error: receiptError } = await supabase.from('receipts').insert([{
       tab_id: activeTab.id,
@@ -282,11 +283,8 @@ export default function Sales() {
       return;
     }
 
-    if (isCredit) {
-      toast.success('Credit sale recorded');
-    } else {
-      toast.success(`Payment received. Receipt ${receiptNumber}`);
-    }
+    if (isCredit) toast.success('Credit sale recorded');
+    else toast.success(`Payment received. Receipt ${receiptNumber}`);
 
     setReceiptPreview({
       ...receipt,
@@ -311,7 +309,6 @@ export default function Sales() {
     win.document.write(generateReceiptHTML(receiptPreview));
     win.document.close();
     win.print();
-    supabase.from('receipts').update({ printed: true }).eq('id', receiptPreview.id);
   };
 
   const handleDoneReceipt = () => {
@@ -321,7 +318,6 @@ export default function Sales() {
     fetchTabs();
   };
 
-  // Pay a credit tab – open payment modal
   const handlePayCredit = (tab) => {
     setActiveTab(tab);
     fetchTabItems(tab.id);
@@ -349,6 +345,7 @@ export default function Sales() {
       paid: payment.amount || tab.total,
       change: (payment.amount || tab.total) - tab.total,
       created_at: tab.closed_at || tab.opened_at,
+      phone_number: tab.phone_number,
     };
     const win = window.open('', '_blank');
     win.document.write(generateHistoricalReceiptHTML(receiptData));
@@ -356,40 +353,25 @@ export default function Sales() {
     win.print();
   };
 
-  // ---------- RECEIPT HTML (info lines left‑aligned, block centred) ----------
+  // ---------- RECEIPT HTML ----------
   const generateReceiptHTML = (receipt) => {
     const date = new Date().toLocaleString('en-UG');
     const itemsHTML = receipt.items.map(item =>
       `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`
     ).join('');
+    const phoneLine = receipt.tab?.phone_number
+      ? `<p class="info">Phone: ${receipt.tab.phone_number}</p>`
+      : '';
     return `<!DOCTYPE html>
 <html>
 <head>
   <title>Omuka Bar Receipt ${receipt.receipt_number}</title>
   <style>
-    body {
-      font-family: monospace;
-      width: 280px;
-      margin: 0 auto;
-      padding: 10px;
-      text-align: center;
-    }
+    body { font-family: monospace; width: 280px; margin: 0 auto; padding: 10px; text-align: center; }
     h2 { text-align: center; }
-    .info {
-      text-align: left;
-      margin: 8px 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      margin: 10px 0;
-    }
-    th, td {
-      text-align: left;
-      padding: 4px;
-      border-bottom: 1px dashed #ccc;
-    }
+    .info { text-align: left; margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; text-align: left; margin: 10px 0; }
+    th, td { text-align: left; padding: 4px; border-bottom: 1px dashed #ccc; }
     .total { font-weight: bold; }
     .footer { text-align: center; margin-top: 20px; }
   </style>
@@ -399,6 +381,7 @@ export default function Sales() {
   <p class="info">Receipt: ${receipt.receipt_number}</p>
   <p class="info">Date: ${date}</p>
   <p class="info">Customer: ${receipt.tab?.customer_name || 'N/A'}</p>
+  ${phoneLine}
   <p class="info">Cashier: ${receipt.cashier_name || user.name}</p>
   <table>
     <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -417,34 +400,19 @@ export default function Sales() {
     const itemsHTML = r.items.map(item =>
       `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`
     ).join('');
+    const phoneLine = r.phone_number
+      ? `<p class="info">Phone: ${r.phone_number}</p>`
+      : '';
     return `<!DOCTYPE html>
 <html>
 <head>
   <title>Omuka Bar Receipt ${r.receipt_number}</title>
   <style>
-    body {
-      font-family: monospace;
-      width: 280px;
-      margin: 0 auto;
-      padding: 10px;
-      text-align: center;
-    }
+    body { font-family: monospace; width: 280px; margin: 0 auto; padding: 10px; text-align: center; }
     h2 { text-align: center; }
-    .info {
-      text-align: left;
-      margin: 8px 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      margin: 10px 0;
-    }
-    th, td {
-      text-align: left;
-      padding: 4px;
-      border-bottom: 1px dashed #ccc;
-    }
+    .info { text-align: left; margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; text-align: left; margin: 10px 0; }
+    th, td { text-align: left; padding: 4px; border-bottom: 1px dashed #ccc; }
     .total { font-weight: bold; }
     .footer { text-align: center; margin-top: 20px; }
   </style>
@@ -454,6 +422,7 @@ export default function Sales() {
   <p class="info">Receipt: ${r.receipt_number}</p>
   <p class="info">Date: ${date}</p>
   <p class="info">Customer: ${r.customer_name || 'N/A'}</p>
+  ${phoneLine}
   <p class="info">Cashier: ${r.cashier_name}</p>
   <table>
     <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -467,11 +436,44 @@ export default function Sales() {
 </html>`;
   };
 
+  // ---------- HELPER: format phone for WhatsApp ----------
+  const toInternational = (phone) => {
+    if (!phone) return '';
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      return '256' + cleaned.slice(1);
+    }
+    if (cleaned.startsWith('256')) return cleaned;
+    return '256' + cleaned;
+  };
+
+  // ---------- WHATSAPP / SMS SHARING ----------
   const sendDigitalReceipt = async (type) => {
     if (!receiptPreview) return;
-    toast.success(`Sending via ${type}...`);
-    if (type === 'sms') await supabase.from('receipts').update({ sms_sent: true }).eq('id', receiptPreview.id);
-    else await supabase.from('receipts').update({ whatsapp_sent: true }).eq('id', receiptPreview.id);
+
+    if (type === 'whatsapp') {
+      const total = formatCurrency(receiptPreview.total);
+      const itemsList = receiptPreview.items
+        .map(item => `${item.products?.name} x${item.quantity} – ${formatCurrency(item.total)}`)
+        .join('%0A');
+
+      const message = `*Omuka Bar Receipt*%0A%0A` +
+        `Receipt: ${receiptPreview.receipt_number}%0A` +
+        `Date: ${new Date().toLocaleString('en-UG')}%0A` +
+        `Customer: ${receiptPreview.tab?.customer_name}%0A` +
+        `Cashier: ${receiptPreview.cashier_name || user.name}%0A%0A` +
+        `Items:%0A${itemsList}%0A%0A` +
+        `Total: ${total}`;
+
+      const phone = toInternational(receiptPreview.tab?.phone_number);
+      const waUrl = phone
+        ? `https://wa.me/${phone}?text=${message}`
+        : `https://wa.me/?text=${message}`;   // no number, open generic
+      window.open(waUrl, '_blank');
+      toast.success('WhatsApp opened');
+    } else if (type === 'sms') {
+      toast.success('SMS feature not yet configured (Twilio required)');
+    }
   };
 
   function formatCurrency(amount) {
@@ -483,7 +485,17 @@ export default function Sales() {
   );
 
   if (loading) {
-    return <div className="flex justify-center h-64 items-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div></div>;
+    return <div className="flex justify-center h-64 items-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
+  }
+
+  if (!isOnline()) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-4">📡 No Internet Connection</p>
+        <p className="text-gray-500 dark:text-gray-400 mb-6">Sales require an active internet connection.</p>
+        <button onClick={() => window.location.reload()} className="bg-brand-green text-white px-6 py-2 rounded-lg hover:bg-green-700">Reload</button>
+      </div>
+    );
   }
 
   if (!activeShift) {
@@ -566,12 +578,33 @@ export default function Sales() {
                     </div>
                   )}
                   {tab.status === 'closed' && (
-                    <div className="mt-3 text-right">
+                    <div className="mt-3 text-right flex justify-end gap-2">
+                      <button onClick={() => printHistoricalReceipt(tab)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 text-sm font-medium">
+                        🖨️ Print
+                      </button>
                       <button
-                        onClick={() => printHistoricalReceipt(tab)}
-                        className="bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 text-sm font-medium"
+                        onClick={() => {
+                          const total = formatCurrency(tab.total);
+                          const itemsList = tab.tab_items?.map(item =>
+                            `${item.products?.name} x${item.quantity} – ${formatCurrency(item.total)}`
+                          ).join('%0A') || '';
+                          const message = `*Omuka Bar Receipt*%0A%0A` +
+                            `Receipt: HIST-${tab.id.slice(0,8)}%0A` +
+                            `Date: ${new Date(tab.closed_at || tab.opened_at).toLocaleString('en-UG')}%0A` +
+                            `Customer: ${tab.customer_name}%0A` +
+                            `Cashier: ${tab.cashier?.full_name || user.name}%0A%0A` +
+                            `Items:%0A${itemsList}%0A%0A` +
+                            `Total: ${total}`;
+                          const phone = toInternational(tab.phone_number);
+                          const waUrl = phone
+                            ? `https://wa.me/${phone}?text=${message}`
+                            : `https://wa.me/?text=${message}`;
+                          window.open(waUrl, '_blank');
+                          toast.success('WhatsApp opened');
+                        }}
+                        className="bg-green-600 text-white px-4 py-1.5 rounded-lg hover:bg-green-700 text-sm font-medium"
                       >
-                        🖨️ Print Receipt
+                        💬 WhatsApp
                       </button>
                     </div>
                   )}
@@ -585,7 +618,7 @@ export default function Sales() {
           {historySearch && customerHistory.length===0 && <p className="text-gray-500 dark:text-gray-400 text-center py-6">No records found for "{historySearch}".</p>}
         </div>
       ) : receiptPreview ? (
-        /* ---------- RECEIPT PREVIEW (centred) ---------- */
+        /* ---------- RECEIPT PREVIEW ---------- */
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 max-w-md mx-auto border dark:border-gray-700 text-center">
           <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">🧾 Receipt</h3>
           <div className="border dark:border-gray-600 p-4 rounded-lg bg-gray-50 dark:bg-gray-700">
@@ -694,7 +727,7 @@ export default function Sales() {
           </div>
         </div>
       ) : (
-        /* ---------- OPEN TABS LIST (open & credit) ---------- */
+        /* ---------- OPEN TABS LIST ---------- */
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border dark:border-gray-700">
           <div className="p-4 border-b dark:border-gray-600"><h3 className="font-bold text-lg text-gray-900 dark:text-white">Open & Unpaid Tabs</h3></div>
           <div className="divide-y dark:divide-gray-600">
@@ -717,12 +750,7 @@ export default function Sales() {
                   </div>
                   <div>
                     {tab.status === 'credit' && (
-                      <button
-                        onClick={() => handlePayCredit(tab)}
-                        className="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm font-medium"
-                      >
-                        Pay
-                      </button>
+                      <button onClick={() => handlePayCredit(tab)} className="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm font-medium">Pay</button>
                     )}
                     {tab.status === 'open' && (
                       <span className="text-blue-600 dark:text-blue-400">→</span>
@@ -735,7 +763,7 @@ export default function Sales() {
         </div>
       )}
 
-      {/* Payment Modal (with Credit Sale button) */}
+      {/* Payment Modal */}
       {showPayment && activeTab && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border dark:border-gray-700">

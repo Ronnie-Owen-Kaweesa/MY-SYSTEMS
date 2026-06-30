@@ -13,6 +13,7 @@ import Shifts from './pages/Shifts';
 import Sales from './pages/Sales';
 import Reports from './pages/Reports';
 import Receipts from './pages/Receipts';
+import Debts from './pages/Debts';
 import Settings from './pages/Settings';
 import './index.css';
 
@@ -25,10 +26,7 @@ function App() {
             position="top-right"
             toastOptions={{
               duration: 3000,
-              style: {
-                background: '#363636',
-                color: '#fff',
-              },
+              style: { background: '#05C970', color: '#fff' },
             }}
           />
           <Routes>
@@ -48,21 +46,38 @@ function App() {
               <Route path="inventory" element={<Inventory />} />
               <Route path="shifts" element={<Shifts />} />
               <Route path="sales" element={<Sales />} />
-              <Route path="reports" element={
-                <ProtectedRoute requiredRole="owner">
-                  <Reports />
-                </ProtectedRoute>
-              } />
-              <Route path="receipts" element={
-                <ProtectedRoute requiredRole="owner">
-                  <Receipts />
-                </ProtectedRoute>
-              } />
-              <Route path="settings" element={
-                <ProtectedRoute requiredRole="owner">
-                  <Settings />
-                </ProtectedRoute>
-              } />
+              <Route
+                path="reports"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Reports />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="receipts"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Receipts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="debts"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Debts />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="settings"
+                element={
+                  <ProtectedRoute requiredRole="owner">
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
           </Routes>
         </AuthProvider>

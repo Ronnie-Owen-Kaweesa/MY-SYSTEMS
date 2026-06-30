@@ -66,7 +66,7 @@ export default function AppLayout() {
                 <p className="text-sm font-medium text-gray-900 dark:text-white">{user?.name}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user?.role}</p>
               </div>
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-accent to-amber-600 flex items-center justify-center text-white font-bold shadow">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-green to-green-600 flex items-center justify-center text-white font-bold shadow">
                 {user?.name?.charAt(0)}
               </div>
               <button
