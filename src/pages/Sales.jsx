@@ -14,6 +14,25 @@ const PAYMENT_METHODS = [
 export default function Sales() {
   const { user } = useAuth();
 
+  // ---------- BLOCK OWNER ----------
+  if (user?.role === 'owner') {
+    return (
+      <div className="text-center py-20">
+        <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-4">🔒 Sales Restricted</p>
+        <p className="text-gray-500 dark:text-gray-400 mb-6">
+          Only cashiers can process sales. Please log in as Cashier 1 or Cashier 2.
+        </p>
+        <button
+          onClick={() => { window.location.href = '/login'; }}
+          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+        >
+          Go to Login
+        </button>
+      </div>
+    );
+  }
+  // ---------- END OWNER BLOCK ----------
+
   const [activeShift, setActiveShift] = useState(null);
   const [tabs, setTabs] = useState([]);
   const [products, setProducts] = useState([]);
@@ -37,6 +56,9 @@ export default function Sales() {
   const [historySuggestions, setHistorySuggestions] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
 
+  // Paying a credit tab
+  const [payingCreditTab, setPayingCreditTab] = useState(null);
+
   useEffect(() => { loadInitialData(); }, []);
 
   const loadInitialData = async () => {
@@ -46,13 +68,13 @@ export default function Sales() {
   };
 
   const checkActiveShift = async () => {
-    if (user?.role === 'owner') {
-      const { data } = await supabase.from('shifts').select('*').neq('shift_type', 'owner').eq('status', 'open').order('opened_at', { ascending: false }).limit(1).single();
-      setActiveShift(data || null);
-    } else {
-      const { data } = await supabase.from('shifts').select('*').eq('cashier_id', user.id).eq('status', 'open').single();
-      setActiveShift(data);
-    }
+    const { data } = await supabase
+      .from('shifts')
+      .select('*')
+      .eq('cashier_id', user.id)
+      .eq('status', 'open')
+      .single();
+    setActiveShift(data);
   };
 
   const fetchProducts = async () => {
@@ -72,10 +94,27 @@ export default function Sales() {
 
   const calculateTotal = () => tabItems.reduce((sum, item) => sum + (item.total || 0), 0);
 
+  // ---------- AUTO‑SUGGEST (name or phone) ----------
   const handleNameChange = async (value) => {
     setNewCustomerName(value);
     if (value.length > 0) {
-      const { data } = await supabase.from('tabs').select('customer_name, phone_number').ilike('customer_name', `%${value}%`).order('opened_at', { ascending: false }).limit(10);
+      const { data, error } = await supabase
+        .from('tabs')
+        .select('customer_name, phone_number')
+        .or(`customer_name.ilike.%${value}%,phone_number.ilike.%${value}%`)
+        .order('opened_at', { ascending: false })
+        .limit(10);
+      if (error) {
+        const { data: fallback } = await supabase
+          .from('tabs')
+          .select('customer_name, phone_number')
+          .ilike('customer_name', `%${value}%`)
+          .order('opened_at', { ascending: false })
+          .limit(10);
+        const unique = Array.from(new Map((fallback || []).map(d => [d.customer_name, d])).values());
+        setSuggestions(unique);
+        return;
+      }
       const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
       setSuggestions(unique);
     } else setSuggestions([]);
@@ -88,15 +127,20 @@ export default function Sales() {
   };
 
   const handleOpenTab = async () => {
-    if (!activeShift) {
-      toast.error(user?.role === 'owner' ? 'No active cashier shift.' : 'No active shift.');
+    if (!activeShift) { toast.error('No active shift. Please start one first.'); return; }
+    if (!newCustomerName.trim()) { toast.error('Enter customer name'); return; }
+
+    const phone = newCustomerPhone.trim().replace(/\D/g, '');
+    const finalPhone = phone.length === 10 ? phone : null;
+    if (phone.length > 0 && phone.length !== 10) {
+      toast.error('Phone must be exactly 10 digits');
       return;
     }
-    if (!newCustomerName.trim()) { toast.error('Enter customer name'); return; }
+
     const { data, error } = await supabase.from('tabs').insert([{
       customer_name: newCustomerName.trim(),
-      phone_number: newCustomerPhone.trim() || null,
-      cashier_id: activeShift.cashier_id,
+      phone_number: finalPhone,
+      cashier_id: user.id,
       shift_id: activeShift.id,
       status: 'open'
     }]).select().single();
@@ -108,10 +152,27 @@ export default function Sales() {
     fetchTabItems(data.id);
   };
 
+  // ---------- HISTORY SEARCH ----------
   const handleHistorySearchChange = async (value) => {
     setHistorySearch(value);
     if (value.trim().length > 0) {
-      const { data } = await supabase.from('tabs').select('customer_name').ilike('customer_name', `%${value.trim()}%`).order('opened_at', { ascending: false }).limit(8);
+      const { data, error } = await supabase
+        .from('tabs')
+        .select('customer_name')
+        .or(`customer_name.ilike.%${value}%,phone_number.ilike.%${value}%`)
+        .order('opened_at', { ascending: false })
+        .limit(8);
+      if (error) {
+        const { data: fallback } = await supabase
+          .from('tabs')
+          .select('customer_name')
+          .ilike('customer_name', `%${value}%`)
+          .order('opened_at', { ascending: false })
+          .limit(8);
+        const unique = Array.from(new Map((fallback || []).map(d => [d.customer_name, d])).values());
+        setHistorySuggestions(unique);
+        return;
+      }
       const unique = Array.from(new Map((data || []).map(d => [d.customer_name, d])).values());
       setHistorySuggestions(unique);
     } else setHistorySuggestions([]);
@@ -119,9 +180,24 @@ export default function Sales() {
 
   const searchCustomerHistory = async (nameOverride) => {
     const searchName = nameOverride || historySearch;
-    if (!searchName.trim()) { toast.error('Enter a customer name'); return; }
-    const { data, error } = await supabase.from('tabs').select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`).ilike('customer_name', `%${searchName.trim()}%`).order('opened_at', { ascending: false });
-    if (error) { toast.error('Search failed'); return; }
+    if (!searchName.trim()) { toast.error('Enter a customer name or phone'); return; }
+    const { data, error } = await supabase.from('tabs')
+      .select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`)
+      .or(`customer_name.ilike.%${searchName.trim()}%,phone_number.ilike.%${searchName.trim()}%`)
+      .order('opened_at', { ascending: false });
+    if (error) {
+      const { data: fallback } = await supabase.from('tabs')
+        .select(`*, cashier:users!tabs_cashier_id_fkey(full_name), payments(*), tab_items(*, products(name, product_code))`)
+        .ilike('customer_name', `%${searchName.trim()}%`)
+        .order('opened_at', { ascending: false });
+      if (fallback) {
+        setCustomerHistory(fallback);
+        setHistorySuggestions([]);
+        return;
+      }
+      toast.error('Search failed');
+      return;
+    }
     setCustomerHistory(data || []);
     setHistorySuggestions([]);
   };
@@ -156,52 +232,239 @@ export default function Sales() {
     fetchTabItems(activeTab.id);
   };
 
-  const handlePayment = async () => {
-    if (!activeTab || !paymentAmount || parseFloat(paymentAmount) <= 0) return;
+  // ---------- PAYMENT / CREDIT ----------
+  const handlePayment = async (isCredit = false) => {
+    if (!activeTab) return;
     const total = calculateTotal();
-    const paid = parseFloat(paymentAmount);
-    if (paid < total) { toast.error('Amount less than total'); return; }
-
-    await supabase.from('payments').insert([{ tab_id: activeTab.id, amount: paid, payment_method: paymentMethod, confirmed_by: user.id, reference_number: null }]);
-    await supabase.from('tabs').update({ status: 'closed', total, closed_at: new Date().toISOString() }).eq('id', activeTab.id);
-
-    let cashierName = user.name;
-    if (activeShift && activeShift.cashier_id) {
-      const { data: cashierUser } = await supabase.from('users').select('full_name').eq('id', activeShift.cashier_id).single();
-      if (cashierUser) cashierName = cashierUser.full_name;
+    let paid = 0;
+    if (!isCredit) {
+      paid = parseFloat(paymentAmount);
+      if (!paid || paid <= 0 || paid < total) {
+        toast.error('Enter valid amount (at least total)');
+        return;
+      }
     }
 
+    if (!isCredit) {
+      await supabase.from('payments').insert([{
+        tab_id: activeTab.id,
+        amount: paid,
+        payment_method: paymentMethod,
+        confirmed_by: user.id,
+        reference_number: null
+      }]);
+    }
+
+    const newStatus = isCredit ? 'credit' : 'closed';
+
+    await supabase.from('tabs').update({
+      status: newStatus,
+      total: total,
+      closed_at: new Date().toISOString()
+    }).eq('id', activeTab.id);
+
+    // Create receipt (marked unpaid if credit)
     const receiptNumber = 'RCP-' + Date.now();
     const { data: receipt, error: receiptError } = await supabase.from('receipts').insert([{
       tab_id: activeTab.id,
       receipt_number: receiptNumber,
-      printed: false, sms_sent: false, whatsapp_sent: false,
+      printed: false,
+      sms_sent: false,
+      whatsapp_sent: false,
       customer_name: activeTab.customer_name,
-      cashier_name: cashierName,
+      cashier_name: user.name,
       total_amount: total,
+      is_credit: isCredit,
     }]).select().single();
 
-    if (receiptError) { toast.error('Receipt generation failed'); return; }
+    if (receiptError) {
+      toast.error('Receipt generation failed');
+      return;
+    }
 
-    toast.success(`Payment received. Receipt ${receiptNumber}`);
+    if (isCredit) {
+      toast.success('Credit sale recorded');
+    } else {
+      toast.success(`Payment received. Receipt ${receiptNumber}`);
+    }
+
+    setReceiptPreview({
+      ...receipt,
+      tab: activeTab,
+      items: tabItems,
+      total,
+      paid: isCredit ? 0 : paid,
+      change: isCredit ? 0 : paid - total,
+      method: isCredit ? 'credit' : paymentMethod,
+      isCredit,
+    });
+
     setShowPayment(false);
-    setReceiptPreview({ ...receipt, tab: activeTab, items: tabItems, total, paid, change: paid - total, method: paymentMethod });
-    setActiveTab(null); setTabItems([]); fetchTabs();
-    setPaymentAmount(''); setPaymentMethod('cash');
+    setPaymentAmount('');
+    setPaymentMethod('cash');
+    setPayingCreditTab(null);
   };
 
   const handlePrintReceipt = () => {
     if (!receiptPreview) return;
     const win = window.open('', '_blank');
     win.document.write(generateReceiptHTML(receiptPreview));
-    win.document.close(); win.print();
+    win.document.close();
+    win.print();
     supabase.from('receipts').update({ printed: true }).eq('id', receiptPreview.id);
   };
 
+  const handleDoneReceipt = () => {
+    setReceiptPreview(null);
+    setActiveTab(null);
+    setTabItems([]);
+    fetchTabs();
+  };
+
+  // Pay a credit tab – open payment modal
+  const handlePayCredit = (tab) => {
+    setActiveTab(tab);
+    fetchTabItems(tab.id);
+    setPayingCreditTab(tab);
+    setShowPayment(true);
+    setPaymentMethod('cash');
+    setPaymentAmount(tab.total?.toString() || '');
+  };
+
+  // ---------- PRINT HISTORICAL RECEIPT ----------
+  const printHistoricalReceipt = (tab) => {
+    const payment = tab.payments?.[0] || {};
+    const receiptData = {
+      receipt_number: 'HIST-' + tab.id.slice(0, 8),
+      customer_name: tab.customer_name,
+      cashier_name: tab.cashier?.full_name || user.name,
+      total_amount: tab.total,
+      items: tab.tab_items.map(item => ({
+        products: item.products,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total: item.total,
+      })),
+      payment_method: payment.payment_method || 'N/A',
+      paid: payment.amount || tab.total,
+      change: (payment.amount || tab.total) - tab.total,
+      created_at: tab.closed_at || tab.opened_at,
+    };
+    const win = window.open('', '_blank');
+    win.document.write(generateHistoricalReceiptHTML(receiptData));
+    win.document.close();
+    win.print();
+  };
+
+  // ---------- RECEIPT HTML (info lines left‑aligned, block centred) ----------
   const generateReceiptHTML = (receipt) => {
     const date = new Date().toLocaleString('en-UG');
-    const itemsHTML = receipt.items.map(item => `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`).join('');
-    return `<!DOCTYPE html><html><head><title>Omuka Bar Receipt ${receipt.receipt_number}</title><style>body{font-family:monospace;width:280px;margin:0 auto;padding:10px}h2{text-align:center}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:4px;border-bottom:1px dashed #ccc}.total{font-weight:bold}.footer{text-align:center;margin-top:20px}</style></head><body><h2>OMUKA BAR RECEIPT</h2><p>Receipt: ${receipt.receipt_number}</p><p>Date: ${date}</p><p>Customer: ${receipt.tab?.customer_name || 'N/A'}</p><p>Cashier: ${receipt.cashier_name || user.name}</p><table><thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>${itemsHTML}</tbody></table><p class="total">Total: ${formatCurrency(receipt.total)}</p><p>Paid: ${formatCurrency(receipt.paid)} (${receipt.method})</p><p>Change: ${formatCurrency(receipt.change)}</p><div class="footer"><p>Thank you for choosing Omuka Bar!</p></div></body></html>`;
+    const itemsHTML = receipt.items.map(item =>
+      `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`
+    ).join('');
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <title>Omuka Bar Receipt ${receipt.receipt_number}</title>
+  <style>
+    body {
+      font-family: monospace;
+      width: 280px;
+      margin: 0 auto;
+      padding: 10px;
+      text-align: center;
+    }
+    h2 { text-align: center; }
+    .info {
+      text-align: left;
+      margin: 8px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      margin: 10px 0;
+    }
+    th, td {
+      text-align: left;
+      padding: 4px;
+      border-bottom: 1px dashed #ccc;
+    }
+    .total { font-weight: bold; }
+    .footer { text-align: center; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>OMUKA BAR RECEIPT</h2>
+  <p class="info">Receipt: ${receipt.receipt_number}</p>
+  <p class="info">Date: ${date}</p>
+  <p class="info">Customer: ${receipt.tab?.customer_name || 'N/A'}</p>
+  <p class="info">Cashier: ${receipt.cashier_name || user.name}</p>
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+    <tbody>${itemsHTML}</tbody>
+  </table>
+  <p class="total">Total: ${formatCurrency(receipt.total)}</p>
+  <p>Paid: ${formatCurrency(receipt.paid)} (${receipt.method})</p>
+  <p>Change: ${formatCurrency(receipt.change)}</p>
+  <div class="footer"><p>Thank you for choosing Omuka Bar!</p></div>
+</body>
+</html>`;
+  };
+
+  const generateHistoricalReceiptHTML = (r) => {
+    const date = new Date(r.created_at).toLocaleString('en-UG');
+    const itemsHTML = r.items.map(item =>
+      `<tr><td>${item.products?.name || 'Product'}</td><td>${item.quantity}</td><td>${formatCurrency(item.unit_price)}</td><td>${formatCurrency(item.total)}</td></tr>`
+    ).join('');
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <title>Omuka Bar Receipt ${r.receipt_number}</title>
+  <style>
+    body {
+      font-family: monospace;
+      width: 280px;
+      margin: 0 auto;
+      padding: 10px;
+      text-align: center;
+    }
+    h2 { text-align: center; }
+    .info {
+      text-align: left;
+      margin: 8px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      margin: 10px 0;
+    }
+    th, td {
+      text-align: left;
+      padding: 4px;
+      border-bottom: 1px dashed #ccc;
+    }
+    .total { font-weight: bold; }
+    .footer { text-align: center; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>OMUKA BAR RECEIPT</h2>
+  <p class="info">Receipt: ${r.receipt_number}</p>
+  <p class="info">Date: ${date}</p>
+  <p class="info">Customer: ${r.customer_name || 'N/A'}</p>
+  <p class="info">Cashier: ${r.cashier_name}</p>
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+    <tbody>${itemsHTML}</tbody>
+  </table>
+  <p class="total">Total: ${formatCurrency(r.total_amount)}</p>
+  <p>Paid: ${formatCurrency(r.paid)} (${r.payment_method})</p>
+  <p>Change: ${formatCurrency(r.change)}</p>
+  <div class="footer"><p>Thank you for choosing Omuka Bar!</p></div>
+</body>
+</html>`;
   };
 
   const sendDigitalReceipt = async (type) => {
@@ -215,23 +478,15 @@ export default function Sales() {
     return new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX', minimumFractionDigits: 0 }).format(amount || 0);
   }
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.product_code.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredProducts = products.filter(p =>
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.product_code.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (loading) {
     return <div className="flex justify-center h-64 items-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div></div>;
   }
 
-  if (!activeShift && user?.role === 'owner') {
-    return (
-      <div className="text-center py-20">
-        <p className="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-4">🔒 No Active Cashier Shift</p>
-        <p className="text-gray-500 dark:text-gray-400 mb-6">A cashier must open their shift before sales can be made.</p>
-        <button onClick={() => { window.location.href = '/shifts'; }} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">View Shifts</button>
-      </div>
-    );
-  }
-
-  if (!activeShift && user?.role !== 'owner') {
+  if (!activeShift) {
     return (
       <div className="text-center py-12">
         <p className="text-xl text-gray-600 dark:text-gray-300 mb-4">⚠️ You need to open a shift before making sales.</p>
@@ -245,17 +500,20 @@ export default function Sales() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">💰 Sales</h2>
         <div className="flex gap-2">
-          <button onClick={() => { setShowHistory(!showHistory); if (showHistory) setCustomerHistory([]); }} className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 font-medium">{showHistory ? 'Active Tabs' : 'Customer History'}</button>
+          <button onClick={() => { setShowHistory(!showHistory); if (showHistory) setCustomerHistory([]); }} className="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 font-medium">
+            {showHistory ? 'Active Tabs' : 'Customer History'}
+          </button>
           <button onClick={() => setShowNewTab(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">+ New Tab</button>
         </div>
       </div>
 
+      {/* Customer History */}
       {showHistory ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6 border dark:border-gray-700">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">🔍 Customer History</h3>
           <div className="flex gap-2 mb-4 relative">
             <div className="flex-1 relative">
-              <input type="text" placeholder="Enter customer name" value={historySearch} onChange={(e) => handleHistorySearchChange(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" autoFocus />
+              <input type="text" placeholder="Customer name or phone" value={historySearch} onChange={(e) => handleHistorySearchChange(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" autoFocus />
               {historySuggestions.length > 0 && (
                 <div className="absolute z-10 w-full bg-white dark:bg-gray-700 border dark:border-gray-600 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto">
                   {historySuggestions.map((s, idx) => (
@@ -307,119 +565,187 @@ export default function Sales() {
                       ))}
                     </div>
                   )}
-                  {tab.status==='open' && <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">⚠️ This tab is still open – no payment recorded yet.</p>}
+                  {tab.status === 'closed' && (
+                    <div className="mt-3 text-right">
+                      <button
+                        onClick={() => printHistoricalReceipt(tab)}
+                        className="bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 text-sm font-medium"
+                      >
+                        🖨️ Print Receipt
+                      </button>
+                    </div>
+                  )}
+                  {tab.status === 'open' && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">⚠️ This tab is still open – no payment recorded yet.</p>
+                  )}
                 </div>
               ))}
             </div>
           )}
           {historySearch && customerHistory.length===0 && <p className="text-gray-500 dark:text-gray-400 text-center py-6">No records found for "{historySearch}".</p>}
         </div>
-      ) : (
-        <>
-          {activeTab ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Add Items to {activeTab.customer_name}</h3>
-                <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 mb-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-                <div className="max-h-64 overflow-y-auto border dark:border-gray-600 rounded-lg">
-                  {filteredProducts.map(product => (
-                    <div key={product.id} className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center ${selectedProduct?.id===product.id?'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-600':''}`} onClick={() => { if(product.current_stock>0){ setSelectedProduct(product); setQuantity(1); } else toast.error('Out of stock'); }}>
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{product.name}</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">{product.product_code}</p>
-                        <p className={`text-xs ${product.current_stock>0?'text-green-600 dark:text-green-400':'text-red-600 dark:text-red-400'}`}>Stock: {product.current_stock}</p>
-                      </div>
-                      <p className="font-bold text-gray-900 dark:text-white">{formatCurrency(product.selling_price)}</p>
-                    </div>
-                  ))}
+      ) : receiptPreview ? (
+        /* ---------- RECEIPT PREVIEW (centred) ---------- */
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 max-w-md mx-auto border dark:border-gray-700 text-center">
+          <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">🧾 Receipt</h3>
+          <div className="border dark:border-gray-600 p-4 rounded-lg bg-gray-50 dark:bg-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-300">Receipt #: {receiptPreview.receipt_number}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Date: {new Date().toLocaleString()}</p>
+            <p className="font-medium text-gray-900 dark:text-white">Customer: {receiptPreview.tab?.customer_name}</p>
+            {receiptPreview.tab?.phone_number && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">📞 {receiptPreview.tab.phone_number}</p>
+            )}
+            <p className="text-sm text-gray-600 dark:text-gray-300">Cashier: {receiptPreview.cashier_name || user.name}</p>
+            <div className="border-t dark:border-gray-500 my-2 pt-2">
+              {receiptPreview.items.map((item, i) => (
+                <div key={i} className="flex justify-between text-sm text-gray-900 dark:text-white">
+                  <span>{item.products?.name} x{item.quantity}</span>
+                  <span>{formatCurrency(item.total)}</span>
                 </div>
-                {selectedProduct && (
-                  <div className="mt-4 flex gap-3 items-end">
-                    <div>
-                      <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Quantity</label>
-                      <input type="number" value={quantity} onChange={(e) => { let val=parseInt(e.target.value)||0; if(val>selectedProduct.current_stock) val=selectedProduct.current_stock; if(val<1) val=1; setQuantity(val); }} min="1" max={selectedProduct.current_stock} className="w-20 border dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-                    </div>
-                    <button onClick={handleAddItem} disabled={selectedProduct.current_stock<1} className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50">Add Item</button>
+              ))}
+            </div>
+            <div className="border-t dark:border-gray-500 pt-2 font-bold flex justify-between text-gray-900 dark:text-white">
+              <span>Total</span><span>{formatCurrency(receiptPreview.total)}</span>
+            </div>
+            {receiptPreview.isCredit ? (
+              <p className="text-red-600 dark:text-red-400 font-bold mt-2">UNPAID</p>
+            ) : (
+              <>
+                <div className="flex justify-between text-sm text-gray-900 dark:text-white">
+                  <span>Paid ({receiptPreview.method})</span><span>{formatCurrency(receiptPreview.paid)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-medium text-gray-900 dark:text-white">
+                  <span>Change</span><span>{formatCurrency(receiptPreview.change)}</span>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex gap-3 mt-4">
+            <button onClick={handlePrintReceipt} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-medium">
+              🖨️ Print Receipt
+            </button>
+            <button onClick={handleDoneReceipt} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 font-medium">
+              Done
+            </button>
+          </div>
+          <div className="flex gap-3 mt-2">
+            <button onClick={() => sendDigitalReceipt('sms')} className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 text-sm">
+              📱 SMS
+            </button>
+            <button onClick={() => sendDigitalReceipt('whatsapp')} className="flex-1 bg-green-700 text-white py-2 rounded-lg hover:bg-green-800 text-sm">
+              💬 WhatsApp
+            </button>
+          </div>
+        </div>
+      ) : activeTab ? (
+        /* ---------- ACTIVE TAB VIEW ---------- */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Add Items to {activeTab.customer_name}</h3>
+            <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 mb-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+            <div className="max-h-64 overflow-y-auto border dark:border-gray-600 rounded-lg">
+              {filteredProducts.map(product => (
+                <div key={product.id} className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center ${selectedProduct?.id===product.id?'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-600':''}`} onClick={() => { if(product.current_stock>0){ setSelectedProduct(product); setQuantity(1); } else toast.error('Out of stock'); }}>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-white">{product.name}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{product.product_code}</p>
+                    <p className={`text-xs ${product.current_stock>0?'text-green-600 dark:text-green-400':'text-red-600 dark:text-red-400'}`}>Stock: {product.current_stock}</p>
                   </div>
-                )}
-              </div>
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">Tab: {activeTab.customer_name}</h3>
-                  <button onClick={() => { setActiveTab(null); setTabItems([]); }} className="text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white">✕ Close</button>
+                  <p className="font-bold text-gray-900 dark:text-white">{formatCurrency(product.selling_price)}</p>
                 </div>
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {tabItems.length===0 ? <p className="text-gray-500 dark:text-gray-400 text-center py-4">No items yet.</p> :
-                    tabItems.map(item => (
-                      <div key={item.id} className="flex justify-between items-center border-b dark:border-gray-600 pb-2">
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-white">{item.products?.name}</p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">{item.quantity} x {formatCurrency(item.unit_price)}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(item.total)}</span>
-                          <button onClick={() => handleRemoveItem(item.id, item.product_id, item.quantity)} className="text-red-500 dark:text-red-400 hover:text-red-700">✕</button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-                <div className="border-t dark:border-gray-600 mt-4 pt-4">
-                  <div className="flex justify-between text-xl font-bold text-gray-900 dark:text-white"><span>Total</span><span>{formatCurrency(calculateTotal())}</span></div>
-                  <button onClick={() => setShowPayment(true)} disabled={tabItems.length===0} className="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50">Process Payment</button>
-                </div>
-              </div>
+              ))}
             </div>
-          ) : receiptPreview ? (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 max-w-md mx-auto border dark:border-gray-700">
-              <h3 className="text-xl font-bold text-center mb-4 text-gray-900 dark:text-white">🧾 Receipt</h3>
-              <div className="border dark:border-gray-600 p-4 rounded-lg bg-gray-50 dark:bg-gray-700">
-                <p className="text-sm text-gray-600 dark:text-gray-300">Receipt #: {receiptPreview.receipt_number}</p>
-                <p className="font-medium text-gray-900 dark:text-white">Customer: {receiptPreview.tab?.customer_name}</p>
-                {receiptPreview.tab?.phone_number && <p className="text-sm text-gray-500 dark:text-gray-400">📞 {receiptPreview.tab.phone_number}</p>}
-                <p className="text-sm text-gray-600 dark:text-gray-300">{new Date().toLocaleString()}</p>
-                <div className="border-t dark:border-gray-500 my-2 pt-2">
-                  {receiptPreview.items.map((item, i) => (
-                    <div key={i} className="flex justify-between text-sm text-gray-900 dark:text-white"><span>{item.products?.name} x{item.quantity}</span><span>{formatCurrency(item.total)}</span></div>
-                  ))}
+            {selectedProduct && (
+              <div className="mt-4 flex gap-3 items-end">
+                <div>
+                  <label className="block text-sm text-gray-600 dark:text-gray-300 mb-1">Quantity</label>
+                  <input type="number" value={quantity} onChange={(e) => { let val=parseInt(e.target.value)||0; if(val>selectedProduct.current_stock) val=selectedProduct.current_stock; if(val<1) val=1; setQuantity(val); }} min="1" max={selectedProduct.current_stock} className="w-20 border dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
                 </div>
-                <div className="border-t dark:border-gray-500 pt-2 font-bold flex justify-between text-gray-900 dark:text-white"><span>Total</span><span>{formatCurrency(receiptPreview.total)}</span></div>
-                <div className="flex justify-between text-sm text-gray-900 dark:text-white"><span>Paid ({receiptPreview.method})</span><span>{formatCurrency(receiptPreview.paid)}</span></div>
-                <div className="flex justify-between text-sm font-medium text-gray-900 dark:text-white"><span>Change</span><span>{formatCurrency(receiptPreview.change)}</span></div>
+                <button onClick={handleAddItem} disabled={selectedProduct.current_stock<1} className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50">Add Item</button>
               </div>
-              <div className="flex gap-3 mt-4">
-                <button onClick={handlePrintReceipt} className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">🖨️ Print</button>
-                <button onClick={() => sendDigitalReceipt('sms')} className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">📱 SMS</button>
-                <button onClick={() => sendDigitalReceipt('whatsapp')} className="flex-1 bg-green-700 text-white py-2 rounded-lg hover:bg-green-800">💬 WhatsApp</button>
-              </div>
-              <button onClick={() => setReceiptPreview(null)} className="w-full mt-3 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500">New Sale</button>
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border dark:border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Tab: {activeTab.customer_name}</h3>
+              <button onClick={() => { setActiveTab(null); setTabItems([]); }} className="text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white">✕ Close</button>
             </div>
-          ) : (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border dark:border-gray-700">
-              <div className="p-4 border-b dark:border-gray-600"><h3 className="font-bold text-lg text-gray-900 dark:text-white">Open Tabs</h3></div>
-              <div className="divide-y dark:divide-gray-600">
-                {tabs.filter(t => t.status==='open').length===0 ? <p className="p-6 text-gray-500 dark:text-gray-400 text-center">No open tabs.</p> :
-                  tabs.filter(t => t.status==='open').map(tab => (
-                    <div key={tab.id} className="flex justify-between items-center px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" onClick={() => { setActiveTab(tab); fetchTabItems(tab.id); }}>
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{tab.customer_name}</p>
-                        {tab.phone_number && <p className="text-sm text-gray-500 dark:text-gray-400">📞 {tab.phone_number}</p>}
-                        <p className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">Opened {new Date(tab.opened_at).toLocaleTimeString()}</p>
-                      </div>
-                      <span className="text-blue-600 dark:text-blue-400">→</span>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {tabItems.length===0 ? <p className="text-gray-500 dark:text-gray-400 text-center py-4">No items yet.</p> :
+                tabItems.map(item => (
+                  <div key={item.id} className="flex justify-between items-center border-b dark:border-gray-600 pb-2">
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{item.products?.name}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{item.quantity} x {formatCurrency(item.unit_price)}</p>
                     </div>
-                  ))}
-              </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(item.total)}</span>
+                      <button onClick={() => handleRemoveItem(item.id, item.product_id, item.quantity)} className="text-red-500 dark:text-red-400 hover:text-red-700">✕</button>
+                    </div>
+                  </div>
+                ))
+              }
             </div>
-          )}
-        </>
+            <div className="border-t dark:border-gray-600 mt-4 pt-4">
+              <div className="flex justify-between text-xl font-bold text-gray-900 dark:text-white"><span>Total</span><span>{formatCurrency(calculateTotal())}</span></div>
+              <button onClick={() => setShowPayment(true)} disabled={tabItems.length===0} className="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50">Process Payment</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ---------- OPEN TABS LIST (open & credit) ---------- */
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden border dark:border-gray-700">
+          <div className="p-4 border-b dark:border-gray-600"><h3 className="font-bold text-lg text-gray-900 dark:text-white">Open & Unpaid Tabs</h3></div>
+          <div className="divide-y dark:divide-gray-600">
+            {tabs.filter(t => t.status === 'open' || t.status === 'credit').length === 0 ? (
+              <p className="p-6 text-gray-500 dark:text-gray-400 text-center">No open or unpaid tabs.</p>
+            ) : (
+              tabs.filter(t => t.status === 'open' || t.status === 'credit').map(tab => (
+                <div key={tab.id} className="flex justify-between items-center px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
+                  <div onClick={() => {
+                    if (tab.status === 'open') {
+                      setActiveTab(tab);
+                      fetchTabItems(tab.id);
+                    }
+                  }}>
+                    <p className="font-medium text-gray-900 dark:text-white">{tab.customer_name}</p>
+                    {tab.phone_number && <p className="text-sm text-gray-500 dark:text-gray-400">📞 {tab.phone_number}</p>}
+                    <p className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                      {tab.status === 'open' ? 'Active' : 'Unpaid'} · {tab.total ? formatCurrency(tab.total) : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    {tab.status === 'credit' && (
+                      <button
+                        onClick={() => handlePayCredit(tab)}
+                        className="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm font-medium"
+                      >
+                        Pay
+                      </button>
+                    )}
+                    {tab.status === 'open' && (
+                      <span className="text-blue-600 dark:text-blue-400">→</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
 
+      {/* Payment Modal (with Credit Sale button) */}
       {showPayment && activeTab && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md border dark:border-gray-700">
             <div className="p-6">
-              <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Payment for {activeTab.customer_name}</h3>
-              <p className="text-2xl font-bold text-center mb-4 text-gray-900 dark:text-white">Total: {formatCurrency(calculateTotal())}</p>
+              <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+                {payingCreditTab ? 'Pay Debt' : 'Payment'} for {activeTab.customer_name}
+              </h3>
+              <p className="text-2xl font-bold text-center mb-4 text-gray-900 dark:text-white">
+                Total: {formatCurrency(calculateTotal())}
+              </p>
               <div className="space-y-3">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Method</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -437,14 +763,24 @@ export default function Sales() {
                 </div>
               </div>
               <div className="flex gap-3 mt-6">
-                <button onClick={handlePayment} className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700">Confirm Payment</button>
-                <button onClick={() => setShowPayment(false)} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
+                <button onClick={() => handlePayment(false)} className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700">
+                  Confirm Payment
+                </button>
+                {!payingCreditTab && (
+                  <button onClick={() => handlePayment(true)} className="flex-1 bg-amber-600 text-white py-2 rounded-lg font-bold hover:bg-amber-700">
+                    Credit Sale
+                  </button>
+                )}
+                <button onClick={() => { setShowPayment(false); setPayingCreditTab(null); }} className="flex-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 py-2 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-500">
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* New Tab Modal */}
       {showNewTab && (
         <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm border dark:border-gray-700">
@@ -452,8 +788,8 @@ export default function Sales() {
               <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Open New Tab</h3>
               <form onSubmit={(e) => { e.preventDefault(); handleOpenTab(); }}>
                 <div className="mb-4 relative">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Customer Name</label>
-                  <input type="text" value={newCustomerName} onChange={(e) => handleNameChange(e.target.value)} className="w-full border dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="Enter or select customer name" required autoFocus />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Customer Name *</label>
+                  <input type="text" value={newCustomerName} onChange={(e) => handleNameChange(e.target.value)} className="w-full border dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="Enter or select customer" required autoFocus />
                   {suggestions.length>0 && (
                     <div className="absolute z-10 w-full bg-white dark:bg-gray-700 border dark:border-gray-600 rounded-lg mt-1 shadow-lg max-h-40 overflow-y-auto">
                       {suggestions.map((s, idx) => (
@@ -466,8 +802,18 @@ export default function Sales() {
                   )}
                 </div>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone Number (optional)</label>
-                  <input type="tel" value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} className="w-full border dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="e.g., 07XXXXXXXX" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone Number (optional, 10 digits)</label>
+                  <input
+                    type="tel"
+                    value={newCustomerPhone}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      setNewCustomerPhone(raw.slice(0, 10));
+                    }}
+                    className="w-full border dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="e.g., 0765212325"
+                    maxLength={10}
+                  />
                 </div>
                 <div className="flex gap-3">
                   <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700">Open Tab</button>
