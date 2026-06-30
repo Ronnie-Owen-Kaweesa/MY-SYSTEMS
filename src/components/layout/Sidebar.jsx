@@ -39,7 +39,9 @@ export default function Sidebar({ isOpen, onClose, collapsed }) {
           </h1>
           <div className="flex items-center gap-2 mt-2 justify-center">
             <span className="w-2 h-2 bg-brand-green rounded-full animate-pulse"></span>
-            <p className={`text-gray-400 text-sm capitalize ${collapsed ? 'hidden' : ''}`}>{user?.role}</p>
+            <p className={`text-gray-400 text-sm capitalize ${collapsed ? 'hidden' : ''}`}>
+              {user?.role === 'owner' ? 'Proprietor' : user?.role}
+            </p>
           </div>
         </div>
 
@@ -68,7 +70,9 @@ export default function Sidebar({ isOpen, onClose, collapsed }) {
             </div>
             <div className={`${collapsed ? 'hidden' : ''}`}>
               <p className="text-sm font-medium text-white">{user?.name}</p>
-              <p className="text-xs text-gray-400 capitalize">{user?.role}</p>
+              <p className="text-xs text-gray-400 capitalize">
+                {user?.role === 'owner' ? 'Proprietor' : user?.role}
+              </p>
             </div>
           </div>
         </div>
