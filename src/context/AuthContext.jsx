@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { loginUser, logout as authLogout, getCurrentUser } from '../services/authService';
 import { isOnline, cacheUsers } from '../services/offlineDB';
-import supabase from '../services/supabaseClient';
+import { supabase } from '../services/supabaseClient';
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext(null);

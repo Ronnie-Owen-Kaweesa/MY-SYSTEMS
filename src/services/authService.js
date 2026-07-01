@@ -1,4 +1,4 @@
-import supabase from './supabaseClient';
+import { supabase } from './supabaseClient';
 import { isOnline, getCachedUserByPin, getCachedUserByPassword } from './offlineDB';
 
 export async function loginUser(credential) {
